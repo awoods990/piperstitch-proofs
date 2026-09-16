@@ -1,37 +1,89 @@
-# Deploying PiperStitch Proofs
+# Deploying PiperStitch Proofs (staging first)
 
-Same shape as License Admin (see Core's DEPLOY.md): one Railway service
-built from `proofs/Dockerfile`, a volume mounted at `/data` (SQLite database
-and artifacts), TLS from the platform.
+Same shape as License Admin (see Core's DEPLOY.md): one Railway service built
+from `proofs/Dockerfile`, a volume at `/data` (SQLite database and artifacts),
+TLS from the platform. Nothing here touches Core's services except reading
+two secrets they already have.
 
-## Environment
+## 1. GitHub
+
+Create an empty repository `awoods990/piperstitch-proofs` (private). The local
+repo already has `origin` pointing at it; then:
+
+```bash
+cd ~/Desktop/PiperStitch\ Proofs && git push -u origin main
+```
+
+The `tests` workflow runs the 27 acceptance tests on every push.
+
+## 2. Railway service
+
+Railway → the existing PiperStitch project → **New service → GitHub repo →
+`piperstitch-proofs`**. Then:
+
+- **Settings → Source:** root directory `proofs` (Railway finds `railway.json`
+  and the Dockerfile there).
+- **Settings → Volumes:** mount path `/data`.
+- **Settings → Networking:** generate a domain, or attach
+  `proofs.piperstitch.com` (a CNAME at GoDaddy). Use it as `PUBLIC_BASE_URL`.
+
+## 3. Variables
 
 | Variable | Value |
 |---|---|
-| `SESSION_SECRET` | 32+ random characters |
+| `SESSION_SECRET` | 32+ random characters (`openssl rand -base64 32`) |
 | `SESSION_COOKIE_SECURE` | `true` |
-| `PUBLIC_BASE_URL` | `https://proofs.piperstitch.com` (the customer links are built from this) |
+| `PUBLIC_BASE_URL` | `https://proofs.piperstitch.com` (customer links are built from this) |
 | `LICENSE_ADMIN_URL` | License Admin's public URL |
-| `WEB_API_KEY` | License Admin's `WEB_API_KEY` (identity + saved projects) |
-| `CORE_SERVER_URL` | the app server's URL |
-| `CORE_API_KEY` | the app server's `WEB_API_KEY` (its `X-API-Key` for `/api/v1/internal/*`) |
-| `SMTP_*` or `POSTMARK_*` | as License Admin |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PROOFS` | the same Stripe account as License Admin; a recurring $25 price; webhook endpoint `/webhooks/stripe` for `checkout.session.completed` and `customer.subscription.*` |
-| `WEBHOOK_TOKEN` | shared secret in Postmark webhook URLs |
-| `CERTIFICATE_SIGNING_KEY` | optional; base64url Ed25519 private key (32 bytes) |
+| `WEB_API_KEY` | **the same value** as License Admin's `WEB_API_KEY` (identity + saved projects) |
+| `CORE_SERVER_URL` | the app server's public URL |
+| `CORE_API_KEY` | **the same value** as the app server's `WEB_API_KEY` (its `X-API-Key` for `/api/v1/internal/*`) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | as License Admin (Microsoft 365), or |
+| `POSTMARK_API_TOKEN`, `POSTMARK_FROM` | Postmark instead of SMTP |
+| `WEBHOOK_TOKEN` | random string; goes in the Postmark webhook URLs below |
+| `STRIPE_SECRET_KEY` | the same Stripe account as License Admin (test keys for staging) |
+| `STRIPE_PRICE_PROOFS` | a recurring **$25/month** price created in that account ("PiperStitch Proofs") |
+| `STRIPE_WEBHOOK_SECRET` | from the webhook endpoint in step 5 |
+| `CERTIFICATE_SIGNING_KEY` | optional: base64url of 32 random bytes (Ed25519 seed) to sign certificates |
+| `FREE_PROOFS_GRANTED` | `3` (default) |
 
-## Core-side prerequisites (additive, already in Core's repo)
+Leave `REQUIRE_LICENSE_ADMIN_SIGNIN` unset: with `LICENSE_ADMIN_URL` set it
+defaults to on, so owners sign in with their PiperStitch email code.
 
-- `POST /api/v1/internal/export/{format}` on the app server — added for
-  Proofs; key-guarded like `internal/digitize`.
+## 4. Core-side prerequisite (already in Core's repo, deploy it)
 
-## Postmark webhooks
+`POST /api/v1/internal/export/{format}` on the app server — Core commit
+`15ffe65`. Redeploy the app service so the route is live. No other Core
+change is needed.
 
-- Bounces: `https://<proofs>/webhooks/postmark/bounce?token=<WEBHOOK_TOKEN>`
-- Inbound mail: `https://<proofs>/webhooks/postmark/inbound?token=<WEBHOOK_TOKEN>`,
-  with an inbound domain whose MX points at Postmark. Addresses are
-  `art@{slug}.piperstitch.com` (wildcard subdomain MX) or `art+{slug}@<inbound domain>`.
-  Postmark adds the `Authentication-Results` header the DKIM/DMARC rule reads.
+## 5. Stripe
+
+- Products → add **PiperStitch Proofs**, recurring, $25.00 / month → copy the
+  price id into `STRIPE_PRICE_PROOFS`.
+- Developers → Webhooks → add endpoint `https://<proofs>/webhooks/stripe` for
+  `checkout.session.completed`, `customer.subscription.created`,
+  `customer.subscription.updated`, `customer.subscription.deleted` → copy the
+  signing secret into `STRIPE_WEBHOOK_SECRET`.
+
+## 6. Postmark (optional but needed for bounces and art-by-email)
+
+- Bounce webhook: `https://<proofs>/webhooks/postmark/bounce?token=<WEBHOOK_TOKEN>`
+- Inbound: create an inbound stream; webhook
+  `https://<proofs>/webhooks/postmark/inbound?token=<WEBHOOK_TOKEN>`. Either
+  point an MX for `*.piperstitch.com` (wildcard) at Postmark so
+  `art@{slug}.piperstitch.com` works, or use Postmark's inbound address with
+  plus-addressing (`art+{slug}@…`) — both are recognised.
+
+## 7. Smoke test on staging
+
+1. Open `https://<proofs>/signin`, enter your PiperStitch email, use the code
+   PiperStitch emails you → the board should open (this proves the License
+   Admin path).
+2. New proof → pick one of your saved projects → Compose → Send to yourself.
+3. Open the link on your phone, approve, check the certificate email and
+   `/verify/<sha>`.
+4. Release → run ticket PDF.
+5. Settings → Upgrade → Stripe test card `4242…` → the plan card should flip.
 
 ## Backups
 
