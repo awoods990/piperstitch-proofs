@@ -532,3 +532,42 @@ def test_shop_logo_appears_on_customer_pages_emails_and_the_proof_pdf(document, 
     # Remove it and the pages go back to name only.
     c.post("/settings/logo", data={"remove": "yes"}, follow_redirects=False)
     assert logo_url not in customer.get(url).text and c.get(logo_url).status_code == 404
+
+
+def test_moving_the_design_before_sending_updates_every_document(document, outbox):
+    c = _client()
+    sign_in(c, "dana-move@shop.example", outbox)
+    proof_id = create_and_compose(c, document, email="move@example.com", placement_down="0", placement_across="0")
+    with database.SessionLocal() as db:
+        p = db.get(Proof, proof_id)
+        v = db.get(ProofVersion, p.current_version_id)
+        vid, before = v.id, dict(v.artifact_hashes)
+        note_before = v.placement_notes
+        assert v.artifact_rev == 0
+    page = c.get(f"/proofs/{proof_id}").text
+    assert "Drag the logo" in page and 'data-ppm="' in page
+    # Drag it 1 in down and 0.5 in to the right.
+    r = c.post(f"/proofs/{proof_id}/versions/{vid}/placement", data={"down": "1", "across": "0.5", "units": "in"}, follow_redirects=False)
+    assert r.status_code == 303
+    with database.SessionLocal() as db:
+        v = db.get(ProofVersion, vid)
+        assert v.artifact_rev == 1 and abs(v.placement_down_mm - 25.4) < 0.01 and abs(v.placement_across_mm - 12.7) < 0.01
+        after = v.artifact_hashes
+        # Placement-dependent artifacts changed; the stitches and machine files did not.
+        assert after["mockup"] != before["mockup"] and after["diagram"] != before["diagram"] and after["pdf"] != before["pdf"]
+        assert after["render"] == before["render"] and after["machine_files"] == before["machine_files"]
+        assert v.placement_notes != note_before and "4.0 in below" in v.placement_notes and "4.1 in left" in v.placement_notes
+        ok, problems = proofs.verify_artifacts(db, v)
+        assert ok, problems
+        assert events.chain(db, proof_id)[-1].event_type == "repositioned"
+    # The served mockup/diagram/PDF are the moved ones; the run ticket and proof PDF carry the new note.
+    assert hashlib.sha256(c.get(f"/proofs/{proof_id}/versions/{vid}/mockup.png").content).hexdigest() == after["mockup"]
+    assert b"4.0 in below" in pdf_text(c.get(f"/proofs/{proof_id}/versions/{vid}/proof.pdf").content)
+    assert b"4.0 in below" in pdf_text(c.get(f"/proofs/{proof_id}/run-ticket.pdf").content)
+    # Once sent, the position is frozen.
+    url = send_current(c, proof_id, outbox, "move@example.com")
+    assert "4.0 in below" in TestClient(app).get(url).text
+    r = c.post(f"/proofs/{proof_id}/versions/{vid}/placement", data={"down": "0", "across": "0", "units": "in"}, follow_redirects=False)
+    with database.SessionLocal() as db:
+        assert db.get(ProofVersion, vid).artifact_rev == 1
+    assert "before the proof is sent" in c.get(f"/proofs/{proof_id}").text

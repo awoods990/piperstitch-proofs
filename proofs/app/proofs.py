@@ -7,11 +7,13 @@ proof's rollup status. Nothing here renders HTML.
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -161,8 +163,21 @@ def link_project(db: Session, proof: Proof, user: Optional[User], *, core_projec
 ARTIFACT_KEYS = ("pdf", "render", "hero", "social")
 
 
-def _artifact_key(proof: Proof, version_number: int, name: str) -> str:
+REPOSITIONED = ("proof.pdf", "mockup.png", "diagram.png", "hero.png", "social.png")
+
+
+def _artifact_key(proof: Proof, version_number: int, name: str, rev: int = 0) -> str:
+    """Storage is write-once, so the artifacts that depend on placement
+    (mockup, diagram, PDF, hero, social, colourway mockups) live under
+    `r<rev>/` once an unsent version has been moved; the render and the
+    machine files never change and stay at the root."""
+    if rev and (name in REPOSITIONED or (name.startswith("cw") and name.endswith("-mockup.png"))):
+        name = f"r{rev}/{name}"
     return f"accounts/{proof.account_id}/proofs/{proof.id}/v{version_number}/{name}"
+
+
+def artifact_key(proof: Proof, v: ProofVersion, name: str) -> str:
+    return _artifact_key(proof, v.version_number, name, v.artifact_rev)
 
 
 def _size_breakdown_from_form(raw: str) -> dict:
@@ -280,6 +295,83 @@ def compose_version(db: Session, proof: Proof, user: Optional[User], *, document
     events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="composed", actor_type="user" if user else "system",
                   actor_id=user.id if user else "", payload={"version": n, "design_hash": v.design_hash, "artifact_hashes": hashes,
                                                               "stitch_count": v.stitch_count, "width_mm": v.width_mm, "height_mm": v.height_mm})
+    _refresh(db, proof)
+    return v
+
+
+def design_box(db: Session, proof: Proof, v: ProofVersion) -> Optional[dict]:
+    """Where the design sits in the mockup image (pixels) so the page can
+    let the shop drag it; None when there's no garment mockup."""
+    template = garments.TEMPLATE_BY_ID.get(v.garment_template_id)
+    if not template or not v.artifact_hashes.get("mockup"):
+        return None
+    zone = template.zone(v.garment_zone or template.default_zone)
+    im = Image.open(io.BytesIO(storage.get(_artifact_key(proof, v.version_number, "render.png"))))
+    render_ppm = im.width / (max(v.width_mm, 1) + 8.0)   # render_png pads 4 mm each side
+    return garments.design_box(im.width, im.height, render_ppm, template, zone, (v.placement_down_mm, v.placement_across_mm))
+
+
+def reposition_version(db: Session, v: ProofVersion, user: Optional[User], *, down_mm: float, across_mm: float) -> ProofVersion:
+    """Move the design on the garment for a version the customer hasn't
+    seen. Redraws the mockup, the placement diagram, the measured note,
+    the PDF and the share images under a new artifact revision, re-hashes
+    them and records the move. The stitches and machine files are untouched."""
+    proof = db.get(Proof, v.proof_id)
+    if v.status != "ready_to_send" or v.sent_at:
+        raise TransitionError("The position can only be changed before the proof is sent. Build a new version to move it now.")
+    template = garments.TEMPLATE_BY_ID.get(v.garment_template_id)
+    if not template:
+        raise TransitionError("This version has no garment mockup to position on.")
+    account = db.get(Account, proof.account_id)
+    zone = template.zone(v.garment_zone or template.default_zone)
+    limit = template.real_width_mm
+    down_mm = max(-limit, min(limit, float(down_mm or 0)))
+    across_mm = max(-limit, min(limit, float(across_mm or 0)))
+    # A note the shop wrote by hand stays; the measured one is re-measured.
+    auto_note = garments.measured_note(template, zone, v.height_mm, v.placement_down_mm, v.placement_across_mm, account.units)
+    if not v.placement_notes.strip() or v.placement_notes.strip() == auto_note:
+        v.placement_notes = garments.measured_note(template, zone, v.height_mm, down_mm, across_mm, account.units)
+    v.placement_down_mm, v.placement_across_mm = down_mm, across_mm
+    v.artifact_rev += 1
+
+    render = storage.get(_artifact_key(proof, v.version_number, "render.png"))
+    render_ppm = Image.open(io.BytesIO(render)).width / (max(v.width_mm, 1) + 8.0)
+    mockup = garments.composite(render, render_ppm, template, zone, garments.color_hex(v.garment_color), offsets_mm=(down_mm, across_mm))
+    diagram = garments.placement_diagram(template, zone, v.width_mm, v.height_mm, down_mm, across_mm, account.units)
+    hero = stitch.fit_into(mockup, (1200, 630))
+    social = stitch.fit_into(mockup, (1080, 1080))
+    contact = db.get(Contact, proof.contact_id)
+    terms = db.get(TermsVersion, v.terms_version_id) if v.terms_version_id else current_terms(db, account)
+    previous = db.execute(select(ProofVersion).where(ProofVersion.proof_id == proof.id, ProofVersion.version_number < v.version_number)
+                          .order_by(ProofVersion.version_number.desc())).scalars().first()
+    fabric = v.fabric_code
+    pdf = pdfgen.proof_pdf(
+        shop_name=account.shop_name or "Your embroiderer", reference=proof.reference, title=proof.title, version_number=v.version_number, version_count=v.version_number,
+        composed_at=v.composed_at, contact_name=contact.display_name or contact.email, render_png=render, width_mm=v.width_mm, height_mm=v.height_mm,
+        stitch_count=v.stitch_count, color_change_count=v.color_change_count, trim_count=v.trim_count,
+        stops=[stop_dict(s) for s in v.thread_stops], garment=v.garment_style_name, garment_color=v.garment_color,
+        placement=v.placement_name, placement_notes=v.placement_notes, quantity=v.quantity, size_breakdown=v.size_breakdown,
+        fabric_name=texts.FABRIC_NAMES.get(fabric, fabric), stabilizer=v.stabilizer_advice, terms_body=terms.body, message=v.message_body,
+        price_line=v.price_line, design_hash=v.design_hash, supersedes=previous.version_number if previous else None,
+        mockup_png=mockup, diagram_png=diagram,
+        logo_png=storage.get(account.logo_key) if account.logo_key and storage.exists(account.logo_key) else None,
+    )
+    hashes = v.artifact_hashes
+    hashes.update({"pdf": stitch.sha256(pdf), "hero": stitch.sha256(hero), "social": stitch.sha256(social), "mockup": stitch.sha256(mockup), "diagram": stitch.sha256(diagram)})
+    storage.put(artifact_key(proof, v, "proof.pdf"), pdf)
+    storage.put(artifact_key(proof, v, "mockup.png"), mockup)
+    storage.put(artifact_key(proof, v, "diagram.png"), diagram)
+    storage.put(artifact_key(proof, v, "hero.png"), hero)
+    storage.put(artifact_key(proof, v, "social.png"), social)
+    for cw in v.colorways:
+        cw_render = storage.get(_artifact_key(proof, v.version_number, f"cw{cw.ordinal}-render.png"))
+        mock = garments.composite(cw_render, render_ppm, template, zone, garments.color_hex(v.garment_color), offsets_mm=(down_mm, across_mm))
+        storage.put(artifact_key(proof, v, f"cw{cw.ordinal}-mockup.png"), mock)
+        hashes.setdefault("colorways", {}).setdefault(str(cw.ordinal), {})["mockup"] = stitch.sha256(mock)
+    v.artifact_hashes_json = json.dumps(hashes, sort_keys=True)
+    events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="repositioned", actor_type="user" if user else "system",
+                  actor_id=user.id if user else "", payload={"version": v.version_number, "placement_down_mm": down_mm, "placement_across_mm": across_mm,
+                                                              "placement_notes": v.placement_notes, "artifact_rev": v.artifact_rev, "artifact_hashes": hashes})
     _refresh(db, proof)
     return v
 
@@ -652,7 +744,7 @@ def verify_artifacts(db: Session, v: ProofVersion) -> tuple[bool, list[str]]:
     for key, name in checks.items():
         if not expected.get(key):
             continue   # optional artifact not produced for this version
-        k = _artifact_key(proof, v.version_number, name)
+        k = artifact_key(proof, v, name)
         if not storage.exists(k) or stitch.sha256(storage.get(k)) != expected.get(key):
             problems.append(key)
     for fmt, h in (expected.get("machine_files") or {}).items():
@@ -661,7 +753,7 @@ def verify_artifacts(db: Session, v: ProofVersion) -> tuple[bool, list[str]]:
             problems.append(f"machine_files.{fmt}")
     for ordinal, entry in (expected.get("colorways") or {}).items():
         for name, h in entry.items():
-            k = _artifact_key(proof, v.version_number, f"cw{ordinal}-{name}.png")
+            k = artifact_key(proof, v, f"cw{ordinal}-{name}.png")
             if not storage.exists(k) or stitch.sha256(storage.get(k)) != h:
                 problems.append(f"colorways.{ordinal}.{name}")
     return (not problems), problems

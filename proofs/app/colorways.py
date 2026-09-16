@@ -74,7 +74,7 @@ def add_colorway(db: Session, v: ProofVersion, user: Optional[User], *, name: st
         zone = t.zone(v.garment_zone or t.default_zone)
         mock = garments.composite(render, stitch.render_pixels_per_mm(render, analysis), t, zone, garments.color_hex(v.garment_color),
                                   offsets_mm=(v.placement_down_mm, v.placement_across_mm))
-        storage.put(proofs._artifact_key(proof, v.version_number, f"cw{ordinal}-mockup.png"), mock)
+        storage.put(proofs.artifact_key(proof, v, f"cw{ordinal}-mockup.png"), mock)
         entry["mockup"] = stitch.sha256(mock)
     cws[str(ordinal)] = entry
     v.artifact_hashes_json = json.dumps(hashes, sort_keys=True)

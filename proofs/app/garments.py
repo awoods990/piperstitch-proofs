@@ -216,6 +216,33 @@ def _barrel(render: Image.Image, amount: float) -> Image.Image:
     return out
 
 
+def _layout(render_w: int, render_h: int, render_ppm: float, template: Template, zone: Zone, offsets_mm: tuple[float, float], size: int = 1000) -> dict:
+    """Where the design lands on the garment box, and how the composite
+    is cropped -- shared by `composite` and `design_box` so the page's
+    drag handle and the picture can never disagree."""
+    s = size / 1000.0
+    px_per_mm = s / template.mm_per_px
+    scale = px_per_mm / render_ppm
+    w, h = max(1, int(render_w * scale)), max(1, int(render_h * scale))
+    cx = zone.cx * s + offsets_mm[1] * px_per_mm
+    cy = zone.cy * s + offsets_mm[0] * px_per_mm
+    x0, y0 = int(cx - w / 2), int(cy - h / 2)
+    xs = [p[0] * s for p in template.outline]
+    ys = [p[1] * s for p in template.outline]
+    m = 40 * s
+    left, top = max(0, int(min(xs + [x0]) - m)), max(0, int(min(ys + [y0]) - m))
+    right, bottom = min(size, int(max(xs + [x0 + w]) + m)), min(size, int(max(ys + [y0 + h]) + m))
+    return {"scale": scale, "w": w, "h": h, "x0": x0, "y0": y0, "crop": (left, top, right, bottom), "px_per_mm": px_per_mm}
+
+
+def design_box(render_w: int, render_h: int, render_ppm: float, template: Template, zone: Zone, offsets_mm: tuple[float, float], size: int = 1000) -> dict:
+    """The design's rectangle in the finished (cropped) mockup's pixels,
+    plus the mockup's pixels-per-mm, for dragging it on the page."""
+    L = _layout(render_w, render_h, render_ppm, template, zone, offsets_mm, size)
+    left, top, right, bottom = L["crop"]
+    return {"x": L["x0"] - left, "y": L["y0"] - top, "w": L["w"], "h": L["h"], "img_w": right - left, "img_h": bottom - top, "px_per_mm": L["px_per_mm"]}
+
+
 def composite(render_png: bytes, render_ppm: float, template: Template, zone: Zone, garment_hex: str,
               size: int = 1000, offsets_mm: tuple[float, float] = (0, 0)) -> bytes:
     """The stitch render placed on the garment at true relative scale.
@@ -232,11 +259,8 @@ def composite(render_png: bytes, render_ppm: float, template: Template, zone: Zo
             r, g, b, a = px[x, y]
             if abs(r - bg[0]) < 10 and abs(g - bg[1]) < 10 and abs(b - bg[2]) < 10:
                 px[x, y] = (r, g, b, 0)
-    # Scale: garment mm/px in the box -> px per mm of the composite.
-    px_per_mm = (s / template.mm_per_px)
-    scale = px_per_mm / render_ppm
-    new_size = (max(1, int(render.width * scale)), max(1, int(render.height * scale)))
-    render = render.resize(new_size, Image.LANCZOS)
+    L = _layout(render.width, render.height, render_ppm, template, zone, offsets_mm, size)
+    render = render.resize((L["w"], L["h"]), Image.LANCZOS)
     if zone.curve > 0:
         render = _barrel(render, zone.curve)
     # Embroidery sits proud of the cloth: a soft drop shadow.
@@ -244,20 +268,12 @@ def composite(render_png: bytes, render_ppm: float, template: Template, zone: Zo
     alpha = render.split()[3].point(lambda v: int(v * 0.55))
     shadow.paste((20, 15, 10, 255), (0, 0), alpha)
     shadow = shadow.filter(ImageFilter.GaussianBlur(2.5 * s))
-    cx = zone.cx * s + offsets_mm[1] * px_per_mm
-    cy = zone.cy * s + offsets_mm[0] * px_per_mm
-    x0 = int(cx - render.width / 2)
-    y0 = int(cy - render.height / 2)
+    x0, y0 = L["x0"], L["y0"]
     img.paste(shadow, (x0 + int(2 * s), y0 + int(3 * s)), shadow)
     img.paste(render, (x0, y0), render)
     # Crop to the garment (plus a margin) so a cap doesn't float in a
     # field of sand on a phone.
-    xs = [p[0] * s for p in template.outline]
-    ys = [p[1] * s for p in template.outline]
-    m = 40 * s
-    left, top = max(0, int(min(xs + [x0]) - m)), max(0, int(min(ys + [y0]) - m))
-    right, bottom = min(size, int(max(xs + [x0 + render.width]) + m)), min(size, int(max(ys + [y0 + render.height]) + m))
-    img = img.crop((left, top, right, bottom))
+    img = img.crop(L["crop"])
     out = io.BytesIO()
     img.save(out, format="PNG", optimize=False, compress_level=6)
     return out.getvalue()

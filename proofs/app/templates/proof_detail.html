@@ -66,8 +66,37 @@
 {% if current.change_summary %}<p class="hint" style="margin-bottom:8px">What changed from the last version: {{ current.change_summary }}</p>{% endif %}
 {% if current.review_note %}<div class="flash warn">Reviewer's note: {{ current.review_note }}</div>{% endif %}
 <div class="row">
-<div style="flex:2;min-width:280px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/{{ 'mockup.png' if current.artifact_hashes.mockup else 'render.png' }}" alt="Proof"></div>
-{% if current.artifact_hashes.mockup %}<div class="row" style="margin-top:8px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/render.png" alt="Stitch render" title="Rendered from the actual machine file in sewing order; jump threads (trimmed) aren't drawn"></div><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/diagram.png" alt="Placement" title="Measured placement"></div></div>{% endif %}
+<div style="flex:2;min-width:280px">
+{% if design_box %}
+<p class="hint" style="margin:0 0 6px"><b style="color:var(--navy800)">Drag the logo to where it should sit.</b> The measurements, the placement diagram and the PDF update to match. {% if current.placement_down_mm or current.placement_across_mm %}Currently {{ current.placement_notes }}.{% else %}Currently at the standard spot for {{ current.placement_name|lower }}.{% endif %}</p>
+<div class="render movable" id="movable" data-x="{{ design_box.x }}" data-y="{{ design_box.y }}" data-w="{{ design_box.w }}" data-h="{{ design_box.h }}" data-imgw="{{ design_box.img_w }}" data-imgh="{{ design_box.img_h }}" data-ppm="{{ design_box.px_per_mm }}" data-down="{{ current.placement_down_mm }}" data-across="{{ current.placement_across_mm }}" data-units="{{ 'in' if m.account.units == 'imperial' else 'mm' }}" data-fill="{{ GARMENT_COLOR_HEX.get(current.garment_color|lower, '#9b9d9f') }}">
+<img src="/proofs/{{ p.id }}/versions/{{ current.id }}/mockup.png?r={{ current.artifact_rev }}" alt="Proof" id="mockupImg" draggable="false">
+<div class="draghole" id="draghole"></div>
+<div class="dragbox" id="dragbox" title="Drag to move the logo"><span class="dragtag" id="dragtag">Drag to move</span></div>
+</div>
+<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/placement" id="placementForm" class="actions" style="margin-top:6px">
+<input type="hidden" name="units" value="mm"><input type="hidden" name="down" id="placeDown" value="{{ current.placement_down_mm }}"><input type="hidden" name="across" id="placeAcross" value="{{ current.placement_across_mm }}">
+{% if current.placement_down_mm or current.placement_across_mm %}<button class="btn small" type="button" onclick="document.getElementById('placeDown').value=0;document.getElementById('placeAcross').value=0;this.form.submit()">Back to the standard spot</button>{% endif %}
+<span class="hint" id="dragStatus"></span>
+</form>
+<script>
+(function(){var box=document.getElementById('movable'),img=document.getElementById('mockupImg'),dr=document.getElementById('dragbox'),hole=document.getElementById('draghole'),tag=document.getElementById('dragtag'),st=document.getElementById('dragStatus');
+var d=box.dataset,X=+d.x,Y=+d.y,W=+d.w,H=+d.h,IW=+d.imgw,IH=+d.imgh,PPM=+d.ppm,units=d.units;
+function pct(v,t){return (v/t*100)+'%'}
+function place(x,y){dr.style.left=pct(x,IW);dr.style.top=pct(y,IH);dr.style.width=pct(W,IW);dr.style.height=pct(H,IH);}
+place(X,Y);hole.style.left=pct(X,IW);hole.style.top=pct(Y,IH);hole.style.width=pct(W,IW);hole.style.height=pct(H,IH);hole.style.background=d.fill;
+function fmt(mm){return units=='in'?(mm/25.4).toFixed(2)+' in':Math.round(mm)+' mm'}
+var start=null;
+function pt(e){var t=e.touches?e.touches[0]:e;return {x:t.clientX,y:t.clientY}}
+function down(e){e.preventDefault();start=pt(e);box.classList.add('dragging');dr.style.backgroundImage='url('+img.src+')';dr.style.backgroundSize=box.clientWidth+'px '+box.clientHeight+'px';dr.style.backgroundPosition=(-X/IW*box.clientWidth)+'px '+(-Y/IH*box.clientHeight)+'px';}
+function move(e){if(!start)return;e.preventDefault();var q=pt(e),k=IW/box.clientWidth,dx=(q.x-start.x)*k,dy=(q.y-start.y)*k;place(X+dx,Y+dy);var down=+d.down+dy/PPM,across=+d.across+dx/PPM;tag.textContent=(dy<0?'up ':'down ')+fmt(Math.abs(dy/PPM))+', '+(dx<0?'left ':'right ')+fmt(Math.abs(dx/PPM));st.textContent='Release to save.';dr._dx=dx;dr._dy=dy;}
+function up(e){if(!start)return;start=null;var dx=dr._dx||0,dy=dr._dy||0;if(Math.abs(dx)<2&&Math.abs(dy)<2){box.classList.remove('dragging');dr.style.backgroundImage='';place(X,Y);tag.textContent='Drag to move';st.textContent='';return}
+document.getElementById('placeDown').value=(+d.down+dy/PPM).toFixed(2);document.getElementById('placeAcross').value=(+d.across+dx/PPM).toFixed(2);st.textContent='Saving the new position…';document.getElementById('placementForm').submit();}
+dr.addEventListener('mousedown',down);window.addEventListener('mousemove',move);window.addEventListener('mouseup',up);
+dr.addEventListener('touchstart',down,{passive:false});window.addEventListener('touchmove',move,{passive:false});window.addEventListener('touchend',up);})();
+</script>
+{% else %}<div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/{{ 'mockup.png' if current.artifact_hashes.mockup else 'render.png' }}?r={{ current.artifact_rev }}" alt="Proof"></div>{% endif %}
+{% if current.artifact_hashes.mockup %}<div class="row" style="margin-top:8px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/render.png" alt="Stitch render" title="Rendered from the actual machine file in sewing order; jump threads (trimmed) aren't drawn"></div><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/diagram.png?r={{ current.artifact_rev }}" alt="Placement" title="Measured placement"></div></div>{% endif %}
 {% if current.colorways %}<div class="row" style="margin-top:8px">{% for cw in current.colorways %}<div style="flex:0 0 150px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/cw{{ cw.ordinal }}-render.png" alt=""></div><p class="hint" style="text-align:center">{{ cw.ordinal }}. {{ cw.name }}{% if approval and approval.colorway_id == cw.id %} <span class="badge good">chosen</span>{% endif %}</p></div>{% endfor %}</div>{% endif %}</div>
 <div style="flex:1;min-width:240px">
 <table class="specs">

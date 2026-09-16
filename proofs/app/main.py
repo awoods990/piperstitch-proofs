@@ -61,7 +61,7 @@ _here = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
 templates = Jinja2Templates(directory=str(_here / "templates"))
 templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
-                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL,
+                              "GARMENT_COLORS": garments.GARMENT_COLORS, "GARMENT_COLOR_HEX": garments.GARMENT_COLOR_HEX, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL,
                               "STEPS": stages.STEPS,
                               "ASSET_V": str(int((_here / "static" / "proofs.css").stat().st_mtime))})
 
@@ -301,7 +301,8 @@ def _proof_context(db: Session, m: AccountUser, p: Proof) -> dict:
     return {"m": m, "p": p, "versions": versions, "current": current, "changes": changes, "messages": messages, "approval": approval,
             "chain": chain, "chain_ok": chain_ok, "chain_msg": chain_msg, "can": lambda a: auth.can(m.role, a), "ent": proofs.entitlements(db, m.account),
             "reports": reports, "blockers": blockers, "answers": answers, "questions": dict((q[0], q[1]) for q in intake.QUESTIONS),
-            "stage": stages.stage_for(db, p, has_blockers=bool(blockers))}
+            "stage": stages.stage_for(db, p, has_blockers=bool(blockers)),
+            "design_box": proofs.design_box(db, p, current) if current and current.status == "ready_to_send" and not current.sent_at and auth.can(m.role, "compose") else None}
 
 
 @app.get("/proofs/{proof_id}", response_class=HTMLResponse)
@@ -490,6 +491,19 @@ def approve_on_behalf(request: Request, proof_id: str, signer_name: str = Form("
                                                        user_agent=ua, method="on_behalf", on_behalf_channel=channel, on_behalf_evidence=evidence,
                                                        recorded_by=m.user, base_url=_base_url(request)),
                    "Approval recorded on the customer's behalf; certificate written.", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/versions/{version_id}/placement")
+def reposition(request: Request, proof_id: str, version_id: str, down: str = Form("0"), across: str = Form("0"), units: str = Form("mm"),
+               m: AccountUser = Depends(require_can("compose")), db: Session = Depends(get_db)):
+    """Where the design sits on the garment, from the drag on the job page
+    (or the reset button). Absolute offsets from the placement's standard spot."""
+    p = _load_proof(db, m, proof_id)
+    v = db.get(ProofVersion, version_id)
+    if v is None or v.proof_id != p.id:
+        raise HTTPException(404)
+    return _action(request, db, lambda: proofs.reposition_version(db, v, m.user, down_mm=_mm(down, units), across_mm=_mm(across, units)),
+                   "Position saved: {result.placement_notes}. The mockup, placement diagram and PDF are updated.", f"/proofs/{p.id}")
 
 
 @app.post("/proofs/{proof_id}/versions/{version_id}/colorways")
@@ -715,7 +729,7 @@ def _serve_artifact(p: Proof, v: ProofVersion, artifact: str, *, gate: str = "of
         raise HTTPException(404)
     if artifact.startswith("design.") and gate == "hard" and p.status not in ("released", "completed"):
         raise HTTPException(status_code=423, detail="Machine files are withheld until the proof is approved and released (release gate: hard).")
-    key = proofs._artifact_key(p, v.version_number, names[artifact][0])
+    key = proofs.artifact_key(p, v, names[artifact][0])
     if not storage.exists(key):
         raise HTTPException(404)
     data = storage.get(key)
@@ -736,7 +750,7 @@ def run_ticket(proof_id: str, m: AccountUser = Depends(require_member), db: Sess
     cw = db.get(Colorway, approval.colorway_id) if approval and approval.colorway_id else None
     stops = list(db.execute(select(ThreadStop).where(ThreadStop.proof_version_id == v.id, ThreadStop.colorway_id == cw.id).order_by(ThreadStop.stop_number)).scalars()) if cw else list(v.thread_stops)
     render = storage.get(proofs._artifact_key(p, v.version_number, f"cw{cw.ordinal}-render.png" if cw else "render.png"))
-    diagram_key = proofs._artifact_key(p, v.version_number, "diagram.png")
+    diagram_key = proofs.artifact_key(p, v, "diagram.png")
     logo = storage.get(m.account.logo_key) if m.account.logo_key and storage.exists(m.account.logo_key) else None
     pdf = pdfgen.run_ticket_pdf(diagram_png=storage.get(diagram_key) if storage.exists(diagram_key) else None,
         shop_name=m.account.shop_name or "PiperStitch Proofs", reference=p.reference, title=p.title, version_number=v.version_number, render_png=render,

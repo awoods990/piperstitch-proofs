@@ -250,6 +250,7 @@ class ProofVersion(Base):
     # files and so the hashes can be re-verified.
     document_json: Mapped[str] = mapped_column(Text, default="")
     artifact_hashes_json: Mapped[str] = mapped_column(Text, default="{}")
+    artifact_rev: Mapped[int] = mapped_column(Integer, default=0)   # bumped when an unsent version's placement is moved; see proofs.artifact_key
     composed_by: Mapped[Optional[str]] = mapped_column(ForeignKey("user.id"), nullable=True)
     composed_at: Mapped[str] = mapped_column(String, default=utcnow)
     sent_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)

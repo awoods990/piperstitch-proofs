@@ -112,6 +112,16 @@ details.panel summary { color: var(--navy700); }
 .stats b { color: var(--navy800); font-size: 20px; line-height: 1.1; }
 .stats span { color: var(--label); font-size: 11.5px; }
 
+/* --- dragging the design on the mockup --- */
+.movable { position: relative; user-select: none; -webkit-user-select: none; touch-action: none; }
+.movable img { pointer-events: none; }
+.dragbox { position: absolute; box-sizing: border-box; border: 2px dashed var(--blue500); border-radius: 4px; cursor: move; background-repeat: no-repeat; }
+.dragbox:hover { box-shadow: 0 0 0 3px rgba(26,111,209,0.18); }
+.dragtag { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 6px); white-space: nowrap; background: var(--navy800); color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 999px; pointer-events: none; }
+.draghole { position: absolute; display: none; opacity: .92; }
+.movable.dragging .draghole { display: block; }
+.movable.dragging .dragbox { border-style: solid; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+
 /* --- the status dashboard --- */
 .dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0 16px; }
 .dash a { text-decoration: none; color: inherit; }
