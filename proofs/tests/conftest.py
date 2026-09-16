@@ -68,6 +68,13 @@ class FakeStitchClient:
         doc["name"] = name
         return doc
 
+    def catalog(self):
+        return {"hoops": [{"name": '4" × 4"', "widthMM": 100, "heightMM": 100}, {"name": '5" × 7"', "widthMM": 130, "heightMM": 180},
+                          {"name": "Cap frame", "widthMM": 150, "heightMM": 60}, {"name": 'Mighty Hoop 5.5" × 5.5"', "widthMM": 140, "heightMM": 140}]}
+
+    def hoops(self):
+        return self.catalog()["hoops"]
+
     def export(self, document, fmt):
         data = self.files[fmt]
         if "v2" in (document.get("name") or ""):
@@ -84,6 +91,10 @@ class FakeLicenseAdmin:
 
     def __init__(self):
         self.projects: dict[str, dict] = {}
+        self.preferences: dict | None = None
+
+    def get_preferences(self, token):
+        return self.preferences
 
     def save_project(self, token, project_id, name, document):
         self.projects[project_id] = {"id": project_id, "name": name, "document": document, "widthMM": document.get("physicalWidthMM", 0), "heightMM": document.get("physicalHeightMM", 0)}

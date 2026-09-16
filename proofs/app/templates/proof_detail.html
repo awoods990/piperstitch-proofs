@@ -18,7 +18,7 @@
 {% elif stage.next_kind == 'release' and can('release') %}<form method="post" action="/proofs/{{ p.id }}/release"><button class="btn primary">Release to production</button></form>
 {% elif stage.next_kind == 'sheet' %}<a class="btn primary" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">Print the production sheet</a>{% if can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn">Mark as sewn</button></form>{% endif %}
 {% elif stage.next_kind == 'complete' and can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn primary">Mark as sewn</button></form>
-{% elif stage.next_kind == 'core' %}<a class="btn primary" href="{{ CORE_WEB_APP_URL }}{% if p.core_project_id %}?project={{ p.core_project_id }}{% endif %}" target="_blank">Open PiperStitch ↗</a>
+{% elif stage.next_kind == 'core' %}<a class="btn primary" href="{{ CORE_WEB_APP_URL }}{% if p.core_project_id %}?project={{ p.core_project_id }}&return={{ (PUBLIC_BASE_URL ~ '/proofs/' ~ p.id)|urlencode }}{% endif %}" target="_blank">Open PiperStitch ↗</a>
 {% elif stage.next_kind == 'intake' and can('send') %}<a class="btn primary" href="#artwork">{{ stage.next_action }}</a>
 {% elif stage.next_kind == 'review' and current and can('send') and current.composed_by != m.user_id %}<form method="post" action="/proofs/{{ p.id }}/review/pass"><button class="btn primary">Looks good — pass it</button></form>
 {% elif stage.next_kind == 'triage' %}<a class="btn primary" href="#readiness">See the report</a>
@@ -43,7 +43,7 @@
 
 {% if p.core_project_id and not current %}
 <div style="border-top:1px solid var(--rowline);padding-top:10px;margin-top:10px"><p><b>Digitized in PiperStitch</b> as project <b>{{ p.core_project_name or p.core_project_id }}</b> in your account. Open it there to check the stitches and tweak anything, save, then build the proof from it.</p>
-<div class="actions"><a class="btn" href="{{ CORE_WEB_APP_URL }}?project={{ p.core_project_id }}" target="_blank">Open PiperStitch ↗</a>{% if can('compose') and not blockers %}<a class="btn primary" href="/proofs/{{ p.id }}/compose">Build the proof</a>{% endif %}</div></div>
+<div class="actions"><a class="btn" href="{{ CORE_WEB_APP_URL }}?project={{ p.core_project_id }}&return={{ (PUBLIC_BASE_URL ~ '/proofs/' ~ p.id)|urlencode }}" target="_blank">Open PiperStitch ↗</a>{% if can('compose') and not blockers %}<a class="btn primary" href="/proofs/{{ p.id }}/compose">Build the proof</a>{% endif %}</div></div>
 {% endif %}
 
 {% if not current %}
@@ -74,6 +74,15 @@
 <div class="draghole" id="draghole"></div>
 <div class="dragbox" id="dragbox" title="Drag to move the logo"><span class="dragtag" id="dragtag">Drag to move</span></div>
 </div>
+<details style="margin-top:8px"><summary>Show it on a different garment, colour or placement</summary>
+<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/garment" style="margin-top:6px">
+<div class="row"><div><label>Garment</label><select name="garment_template_id" id="rtpl" onchange="rzones()">{% for t in GARMENT_TEMPLATES %}<option value="{{ t.id }}" data-zones='{{ t.zones|map(attribute="id")|list|tojson }}' data-labels='{{ t.zones|map(attribute="label")|list|tojson }}' {% if current.garment_template_id == t.id %}selected{% endif %}>{{ t.name }}</option>{% endfor %}</select></div>
+<div><label>Colour</label><select name="garment_color">{% for name, hex in GARMENT_COLORS %}<option value="{{ name }}" {% if current.garment_color == name %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+<div><label>Placement</label><select name="garment_zone" id="rzone">{% for z in TEMPLATE_BY_ID[current.garment_template_id].zones %}<option value="{{ z.id }}" {% if z.id == current.garment_zone %}selected{% endif %}>{{ z.label }}</option>{% endfor %}</select></div></div>
+<div class="row" style="align-items:flex-end"><div style="flex:2"><label>Style / SKU <span class="hint">(as the customer knows it)</span></label><input type="text" name="garment_style_name" value="{{ current.garment_style_name }}"></div><div style="flex:0"><button class="btn" style="white-space:nowrap">Update the mockup</button></div></div>
+<p class="hint">A new placement starts at its standard spot — drag from there. The customer never sees the earlier picture.</p>
+<script>function rzones(){var t=document.getElementById('rtpl'),o=t.options[t.selectedIndex],z=document.getElementById('rzone'),keep=z.value;z.innerHTML='';var ids=JSON.parse(o.dataset.zones),labels=JSON.parse(o.dataset.labels);ids.forEach(function(id,i){var e=document.createElement('option');e.value=id;e.textContent=labels[i];if(id==keep)e.selected=true;z.appendChild(e)})}</script>
+</form></details>
 <form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/placement" id="placementForm" class="actions" style="margin-top:6px">
 <input type="hidden" name="units" value="mm"><input type="hidden" name="down" id="placeDown" value="{{ current.placement_down_mm }}"><input type="hidden" name="across" id="placeAcross" value="{{ current.placement_across_mm }}">
 {% if current.placement_down_mm or current.placement_across_mm %}<button class="btn small" type="button" onclick="document.getElementById('placeDown').value=0;document.getElementById('placeAcross').value=0;this.form.submit()">Back to the standard spot</button>{% endif %}
@@ -122,9 +131,11 @@ dr.addEventListener('touchstart',down,{passive:false});window.addEventListener('
 {% if current.status == 'ready_to_send' and p.status == 'internal_review' and can('send') %}
   {% if current.composed_by != m.user_id %}<form method="post" action="/proofs/{{ p.id }}/review/fail" style="display:flex;gap:6px;align-items:center"><input type="text" name="note" placeholder="What needs changing" required style="width:260px"><button class="btn">Send it back</button></form>
   {% else %}<span class="hint">You built this version, so someone else has to pass it.</span>{% endif %}
-{% elif current.status == 'ready_to_send' and can('send') %}{% if p.core_project_id %}<a class="btn" href="{{ CORE_WEB_APP_URL }}?project={{ p.core_project_id }}" target="_blank" title="Opens this design in PiperStitch. Save there, then come back and build again — the customer never sees this version.">Adjust in PiperStitch ↗</a>{% endif %}<form method="post" action="/proofs/{{ p.id }}/review/request"><button class="btn" title="Holds the proof until a colleague passes it">Ask a colleague to check it first</button></form>
+{% elif current.status == 'ready_to_send' and can('send') %}{% if p.core_project_id %}<a class="btn" href="{{ CORE_WEB_APP_URL }}?project={{ p.core_project_id }}&return={{ (PUBLIC_BASE_URL ~ '/proofs/' ~ p.id ~ '/compose')|urlencode }}" target="_blank" title="Opens this design in PiperStitch with a “Back to Proofs” button. Save there, come back and build again — the customer never sees this version.">Adjust in PiperStitch ↗</a>{% endif %}<form method="post" action="/proofs/{{ p.id }}/review/request"><button class="btn" title="Holds the proof until a colleague passes it">Ask a colleague to check it first</button></form>
 {% if can('compose') and current.colorways|length < 3 %}<details><summary>Add an alternate colourway</summary><form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/colorways" style="margin-top:6px"><p class="hint">The customer picks one when they approve — e.g. the same logo on black.</p><label>Name</label><input type="text" name="name" placeholder="On black" required>
-{% for s in current.thread_stops %}<div class="row"><div><label>Stop {{ s.stop_number }} ({{ s.thread_name }})</label><input type="color" name="hex_{{ s.stop_number }}" value="{{ s.hex }}"></div><div><label>Thread name</label><input type="text" name="name_{{ s.stop_number }}" placeholder="Madeira Polyneon 1922"></div><div><label>Code</label><input type="text" name="code_{{ s.stop_number }}"></div></div>{% endfor %}
+{% if threads %}<p class="hint">Pick from your PiperStitch thread library — typing a thread's name fills in its colour and code.</p><datalist id="threadLib">{% for t in threads %}<option value="{{ t.name }}" data-hex="{{ t.hex }}" data-code="{{ t.code }}" data-brand="{{ t.brand }}">{{ t.brand }} {{ t.code }}</option>{% endfor %}</datalist>{% endif %}
+{% for s in current.thread_stops %}<div class="row"><div><label>Stop {{ s.stop_number }} ({{ s.thread_name }})</label><input type="color" name="hex_{{ s.stop_number }}" id="cwhex{{ s.stop_number }}" value="{{ s.hex }}"></div><div><label>Thread name</label><input type="text" name="name_{{ s.stop_number }}" placeholder="Madeira Polyneon 1922" {% if threads %}list="threadLib" oninput="threadPick(this, {{ s.stop_number }})"{% endif %}></div><div><label>Code</label><input type="text" name="code_{{ s.stop_number }}" id="cwcode{{ s.stop_number }}"></div></div>{% endfor %}
+{% if threads %}<script>function threadPick(inp,n){var o=document.querySelector('#threadLib option[value="'+inp.value.replace(/"/g,'\\"')+'"]');if(!o)return;document.getElementById('cwhex'+n).value=o.dataset.hex;document.getElementById('cwcode'+n).value=o.dataset.code;}</script>{% endif %}
 <p><button class="btn">Build colourway</button></p></form></details>{% endif %}
 {% endif %}
 {% if current.status in ('changes_requested','expired','declined') and can('send') and stage.next_kind != 'resend' %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn">Send a fresh link</button></form>{% endif %}

@@ -209,7 +209,7 @@ def compose_version(db: Session, proof: Proof, user: Optional[User], *, document
                     garment_color: str = "", placement_name: str = "", placement_notes: str = "", quantity: int = 0,
                     size_breakdown: Optional[dict] = None, message_body: str = "", price_line: str = "", hoop_code: str = "",
                     garment_template_id: str = "", garment_zone: str = "", placement_down_mm: float = 0, placement_across_mm: float = 0,
-                    stitch_client: Optional[core_client.StitchClient] = None) -> ProofVersion:
+                    stitch_client: Optional[core_client.StitchClient] = None, hoop_mm: Optional[tuple[float, float]] = None) -> ProofVersion:
     """Build version N from a Core document: digitize, analyse, render,
     export every machine file, produce the PDF, hash all of it, copy the
     conditions onto the version. Immutable from here (PRD invariant 1)."""
@@ -217,10 +217,14 @@ def compose_version(db: Session, proof: Proof, user: Optional[User], *, document
         raise TransitionError("This proof is closed.")
     account = db.get(Account, proof.account_id)
     client = stitch_client or core_client.stitch
-    digitized = client.digitize(document)
+    digitized = client.digitize(document, *(hoop_mm or (None, None)))
     analysis = stitch.analyze(digitized)
     if analysis.stitch_count == 0:
         raise TransitionError("The design has no stitches -- nothing to proof.")
+    if hoop_mm and (analysis.width_mm > hoop_mm[0] + 0.5 or analysis.height_mm > hoop_mm[1] + 0.5):
+        fits_rotated = analysis.width_mm <= hoop_mm[1] + 0.5 and analysis.height_mm <= hoop_mm[0] + 0.5
+        raise TransitionError(f"The design is {analysis.width_mm / 25.4:.2f} × {analysis.height_mm / 25.4:.2f} in, which doesn't fit the {hoop_code} hoop "
+                              f"({hoop_mm[0] / 25.4:.1f} × {hoop_mm[1] / 25.4:.1f} in)" + (" -- it would if you turn the hoop." if fits_rotated else ". Pick a larger hoop or shrink the design in PiperStitch."))
 
     existing = list(db.execute(select(ProofVersion).where(ProofVersion.proof_id == proof.id).order_by(ProofVersion.version_number)).scalars())
     n = (existing[-1].version_number + 1) if existing else 1
@@ -312,25 +316,52 @@ def design_box(db: Session, proof: Proof, v: ProofVersion) -> Optional[dict]:
 
 
 def reposition_version(db: Session, v: ProofVersion, user: Optional[User], *, down_mm: float, across_mm: float) -> ProofVersion:
-    """Move the design on the garment for a version the customer hasn't
-    seen. Redraws the mockup, the placement diagram, the measured note,
-    the PDF and the share images under a new artifact revision, re-hashes
-    them and records the move. The stitches and machine files are untouched."""
+    """Move the design on the garment for a version the customer hasn't seen."""
+    return restyle_version(db, v, user, down_mm=down_mm, across_mm=across_mm)
+
+
+def restyle_version(db: Session, v: ProofVersion, user: Optional[User], *, template_id: Optional[str] = None, zone_id: Optional[str] = None,
+                    garment_color: Optional[str] = None, garment_style_name: Optional[str] = None,
+                    down_mm: Optional[float] = None, across_mm: Optional[float] = None) -> ProofVersion:
+    """Change the garment, colour, placement zone or position of a version
+    the customer hasn't seen. Redraws the mockup, the placement diagram,
+    the measured note, the PDF and the share images under a new artifact
+    revision, re-hashes them and records the change. The stitches and
+    machine files are untouched."""
     proof = db.get(Proof, v.proof_id)
     if v.status != "ready_to_send" or v.sent_at:
-        raise TransitionError("The position can only be changed before the proof is sent. Build a new version to move it now.")
-    template = garments.TEMPLATE_BY_ID.get(v.garment_template_id)
-    if not template:
-        raise TransitionError("This version has no garment mockup to position on.")
+        raise TransitionError("The garment and position can only be changed before the proof is sent. Build a new version to change them now.")
     account = db.get(Account, proof.account_id)
-    zone = template.zone(v.garment_zone or template.default_zone)
+    old_template = garments.TEMPLATE_BY_ID.get(v.garment_template_id)
+    old_zone = old_template.zone(v.garment_zone or old_template.default_zone) if old_template else None
+    template = garments.TEMPLATE_BY_ID.get(template_id) if template_id else old_template
+    if not template:
+        raise TransitionError("Pick a garment to show the design on.")
+    zone = template.zone(zone_id or (v.garment_zone if template is old_template else template.default_zone))
+    changed_garment = template is not old_template or zone is not old_zone
+    if changed_garment:
+        # The standard spot for the new placement; the shop can drag from there.
+        down_mm, across_mm = 0.0, 0.0
+    if down_mm is None:
+        down_mm = v.placement_down_mm
+    if across_mm is None:
+        across_mm = v.placement_across_mm
     limit = template.real_width_mm
     down_mm = max(-limit, min(limit, float(down_mm or 0)))
     across_mm = max(-limit, min(limit, float(across_mm or 0)))
-    # A note the shop wrote by hand stays; the measured one is re-measured.
-    auto_note = garments.measured_note(template, zone, v.height_mm, v.placement_down_mm, v.placement_across_mm, account.units)
+    # Names and notes the shop typed by hand stay; the automatic ones follow the garment.
+    auto_note = garments.measured_note(old_template, old_zone, v.height_mm, v.placement_down_mm, v.placement_across_mm, account.units) if old_template else ""
     if not v.placement_notes.strip() or v.placement_notes.strip() == auto_note:
         v.placement_notes = garments.measured_note(template, zone, v.height_mm, down_mm, across_mm, account.units)
+    if not v.placement_name.strip() or (old_zone and v.placement_name.strip() == old_zone.label):
+        v.placement_name = zone.label
+    if garment_style_name is not None and garment_style_name.strip():
+        v.garment_style_name = garment_style_name.strip()
+    elif not v.garment_style_name.strip() or (old_template and v.garment_style_name.strip() == old_template.name):
+        v.garment_style_name = template.name
+    if garment_color is not None and garment_color.strip():
+        v.garment_color = garment_color.strip()
+    v.garment_template_id, v.garment_zone = template.id, zone.id
     v.placement_down_mm, v.placement_across_mm = down_mm, across_mm
     v.artifact_rev += 1
 
@@ -369,8 +400,9 @@ def reposition_version(db: Session, v: ProofVersion, user: Optional[User], *, do
         storage.put(artifact_key(proof, v, f"cw{cw.ordinal}-mockup.png"), mock)
         hashes.setdefault("colorways", {}).setdefault(str(cw.ordinal), {})["mockup"] = stitch.sha256(mock)
     v.artifact_hashes_json = json.dumps(hashes, sort_keys=True)
-    events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="repositioned", actor_type="user" if user else "system",
-                  actor_id=user.id if user else "", payload={"version": v.version_number, "placement_down_mm": down_mm, "placement_across_mm": across_mm,
+    events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="restyled" if changed_garment or garment_color else "repositioned", actor_type="user" if user else "system",
+                  actor_id=user.id if user else "", payload={"version": v.version_number, "garment_template_id": template.id, "garment_zone": zone.id, "garment_color": v.garment_color,
+                                                              "placement_down_mm": down_mm, "placement_across_mm": across_mm,
                                                               "placement_notes": v.placement_notes, "artifact_rev": v.artifact_rev, "artifact_hashes": hashes})
     _refresh(db, proof)
     return v

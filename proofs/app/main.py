@@ -62,7 +62,7 @@ app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static"
 templates = Jinja2Templates(directory=str(_here / "templates"))
 templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
                               "GARMENT_COLORS": garments.GARMENT_COLORS, "GARMENT_COLOR_HEX": garments.GARMENT_COLOR_HEX, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL,
-                              "STEPS": stages.STEPS,
+                              "STEPS": stages.STEPS, "PUBLIC_BASE_URL": config.PUBLIC_BASE_URL,
                               "ASSET_V": str(int((_here / "static" / "proofs.css").stat().st_mtime))})
 
 
@@ -287,6 +287,32 @@ def new_proof(request: Request, m: AccountUser = Depends(require_can("create")),
     return RedirectResponse(f"/proofs/{p.id}", status_code=303)
 
 
+def _core_prefs(m: AccountUser) -> dict:
+    """The shop's PiperStitch preferences, or {} when not signed in through
+    License Admin (seat users, local dev) or the call fails."""
+    if not (m.core_session_token and core_client.license_admin.configured):
+        return {}
+    try:
+        return core_client.license_admin.get_preferences(m.core_session_token) or {}
+    except core_client.CoreError:
+        return {}
+
+
+def _threads(prefs: dict) -> list[dict]:
+    """The shop's own thread library from PiperStitch, flattened for a datalist."""
+    out = []
+    for t in prefs.get("threadLibrary") or []:
+        if not isinstance(t, dict) or not isinstance(t.get("rgb"), dict):
+            continue
+        rgb = t["rgb"]
+        try:
+            hex_ = "#%02x%02x%02x" % (int(rgb.get("r", 0)), int(rgb.get("g", 0)), int(rgb.get("b", 0)))
+        except (TypeError, ValueError):
+            continue
+        out.append({"name": str(t.get("name") or ""), "brand": str(t.get("brand") or ""), "code": str(t.get("catalogNumber") or ""), "hex": hex_})
+    return out
+
+
 def _proof_context(db: Session, m: AccountUser, p: Proof) -> dict:
     versions = list(p.versions)
     current = db.get(ProofVersion, p.current_version_id) if p.current_version_id else None
@@ -302,7 +328,8 @@ def _proof_context(db: Session, m: AccountUser, p: Proof) -> dict:
             "chain": chain, "chain_ok": chain_ok, "chain_msg": chain_msg, "can": lambda a: auth.can(m.role, a), "ent": proofs.entitlements(db, m.account),
             "reports": reports, "blockers": blockers, "answers": answers, "questions": dict((q[0], q[1]) for q in intake.QUESTIONS),
             "stage": stages.stage_for(db, p, has_blockers=bool(blockers)),
-            "design_box": proofs.design_box(db, p, current) if current and current.status == "ready_to_send" and not current.sent_at and auth.can(m.role, "compose") else None}
+            "design_box": proofs.design_box(db, p, current) if current and current.status == "ready_to_send" and not current.sent_at and auth.can(m.role, "compose") else None,
+            "threads": _threads(_core_prefs(m)) if current and current.status == "ready_to_send" else []}
 
 
 @app.get("/proofs/{proof_id}", response_class=HTMLResponse)
@@ -332,8 +359,12 @@ def compose_form(request: Request, proof_id: str, m: AccountUser = Depends(requi
         except core_client.CoreError as e:
             project_error = project_error or str(e)
     files = list(db.execute(select(File).where(File.proof_id == p.id, File.kind == "artwork").order_by(File.uploaded_at)).scalars())
+    prefs = _core_prefs(m)
+    hoops = core_client.stitch.hoops()
+    default_hoop = (previous.hoop_code if previous and previous.hoop_code else "") or str(prefs.get("defaultHoopName") or "")
     return templates.TemplateResponse(request, "compose.html", {"m": m, "p": p, "project": project, "project_error": project_error, "previous": previous,
-                                                                 "projects": projects, "files": files, "error": request.session.pop("flash_error", None)})
+                                                                 "projects": projects, "files": files, "error": request.session.pop("flash_error", None),
+                                                                 "hoops": hoops, "default_hoop": default_hoop, "hoop_from_core": bool(prefs.get("defaultHoopName")) and not (previous and previous.hoop_code)})
 
 
 @app.post("/proofs/{proof_id}/compose")
@@ -366,12 +397,16 @@ async def compose(request: Request, proof_id: str, m: AccountUser = Depends(requ
     if intake.open_blockers(db, p):
         request.session["flash_error"] = "The Readiness Report has unresolved blockers. Resolve or override them on the proof page before composing."
         return RedirectResponse(f"/proofs/{p.id}", status_code=303)
+    hoop_code = str(form.get("hoop_code", "")).strip()
+    if hoop_code == "__other__":
+        hoop_code = str(form.get("hoop_other", "")).strip()
+    hoop_mm = next(((float(h["widthMM"]), float(h["heightMM"])) for h in core_client.stitch.hoops() if h.get("name") == hoop_code and h.get("widthMM") and h.get("heightMM")), None)
     try:
         v = proofs.compose_version(
-            db, p, m.user, document=document, garment_style_name=str(form.get("garment_style_name", "")), garment_color=str(form.get("garment_color", "")),
+            db, p, m.user, document=document, hoop_mm=hoop_mm, garment_style_name=str(form.get("garment_style_name", "")), garment_color=str(form.get("garment_color", "")),
             placement_name=str(form.get("placement_name", "")), placement_notes=str(form.get("placement_notes", "")),
             quantity=int(form.get("quantity") or 0), size_breakdown=proofs._size_breakdown_from_form(str(form.get("size_breakdown", ""))),
-            message_body=str(form.get("message_body", "")), price_line=str(form.get("price_line", "")), hoop_code=str(form.get("hoop_code", "")),
+            message_body=str(form.get("message_body", "")), price_line=str(form.get("price_line", "")), hoop_code=hoop_code,
             garment_template_id=str(form.get("garment_template_id", "")), garment_zone=str(form.get("garment_zone", "")),
             placement_down_mm=_mm(form.get("placement_down"), form.get("placement_units")), placement_across_mm=_mm(form.get("placement_across"), form.get("placement_units")))
         db.commit()
@@ -504,6 +539,19 @@ def reposition(request: Request, proof_id: str, version_id: str, down: str = For
         raise HTTPException(404)
     return _action(request, db, lambda: proofs.reposition_version(db, v, m.user, down_mm=_mm(down, units), across_mm=_mm(across, units)),
                    "Position saved: {result.placement_notes}. The mockup, placement diagram and PDF are updated.", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/versions/{version_id}/garment")
+def restyle(request: Request, proof_id: str, version_id: str, garment_template_id: str = Form(""), garment_zone: str = Form(""), garment_color: str = Form(""),
+            garment_style_name: str = Form(""), m: AccountUser = Depends(require_can("compose")), db: Session = Depends(get_db)):
+    """Change the garment, colour or placement zone shown on an unsent version."""
+    p = _load_proof(db, m, proof_id)
+    v = db.get(ProofVersion, version_id)
+    if v is None or v.proof_id != p.id:
+        raise HTTPException(404)
+    return _action(request, db, lambda: proofs.restyle_version(db, v, m.user, template_id=garment_template_id or None, zone_id=garment_zone or None,
+                                                               garment_color=garment_color or None, garment_style_name=garment_style_name or None),
+                   "Garment updated: {result.garment_style_name}, {result.garment_color} — {result.placement_name}. The mockup, diagram and PDF are redrawn.", f"/proofs/{p.id}")
 
 
 @app.post("/proofs/{proof_id}/versions/{version_id}/colorways")

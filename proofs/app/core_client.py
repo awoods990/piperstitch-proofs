@@ -84,6 +84,13 @@ class LicenseAdminClient:
     def save_project(self, token: str, project_id: str, name: str, document: dict) -> dict:
         return self._post("/api/web/projects/save", {"token": token, "id": project_id, "name": name, "document": document})
 
+    def get_preferences(self, token: str) -> Optional[dict]:
+        """The shop's PiperStitch preferences (default hoop, thread library,
+        suppliers) as the web app mirrors them; None when never synced."""
+        out = self._post("/api/web/preferences/get", {"token": token})
+        prefs = out.get("preferences")
+        return prefs if isinstance(prefs, dict) else None
+
     def list_projects(self, token: str) -> list[dict]:
         return self._post("/api/web/projects/list", {"token": token})["projects"]
 
@@ -144,6 +151,27 @@ class StitchClient:
         if r.status_code != 200:
             raise CoreError(f"Digitizing failed ({r.status_code}): {r.text[:200]}")
         return r.json()["document"]
+
+    _catalog_cache: tuple[float, dict] = (0.0, {})
+
+    def catalog(self) -> dict:
+        """Core's catalog (hoops, fabrics, generic thread palette). Open
+        route; cached for an hour, empty dict when the engine is down."""
+        import time
+        stamp, data = StitchClient._catalog_cache
+        if data and time.time() - stamp < 3600:
+            return data
+        try:
+            r = httpx.get(f"{self.base_url}/api/v1/catalog", timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                StitchClient._catalog_cache = (time.time(), data)
+        except (httpx.HTTPError, ValueError):
+            pass
+        return data or {}
+
+    def hoops(self) -> list[dict]:
+        return [h for h in (self.catalog().get("hoops") or []) if isinstance(h, dict) and h.get("name")]
 
     def export(self, document: dict, fmt: str) -> bytes:
         if fmt not in MACHINE_FORMATS:

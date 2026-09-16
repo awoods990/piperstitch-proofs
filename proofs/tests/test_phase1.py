@@ -406,13 +406,13 @@ def test_void_revokes_links_and_expired_versions_can_be_resent(document, outbox)
 
 
 def test_every_garment_template_composes_and_measures(document):
-    """All twelve templates, every zone, produce a mockup and a diagram."""
+    """Every template (eight of them headwear), every zone, produces a mockup and a diagram."""
     from app import garments
     d = json.loads((Path(__file__).parent / "fixtures/cap_digitize.json").read_text())
     render = stitch.render_png(d)
     analysis = stitch.analyze(d)
     ppm = stitch.render_pixels_per_mm(render, analysis)
-    assert len(garments.TEMPLATES) == 12
+    assert len(garments.TEMPLATES) == 17 and sum(1 for t in garments.TEMPLATES if t.category == "cap") == 8
     for t in garments.TEMPLATES:
         for z in t.zones:
             mock = garments.composite(render, ppm, t, z, garments.color_hex("Navy"))
@@ -571,3 +571,46 @@ def test_moving_the_design_before_sending_updates_every_document(document, outbo
     with database.SessionLocal() as db:
         assert db.get(ProofVersion, vid).artifact_rev == 1
     assert "before the proof is sent" in c.get(f"/proofs/{proof_id}").text
+
+
+def test_core_hoops_and_thread_library_prepopulate_and_the_garment_can_change_before_sending(document, outbox):
+    from app import core_client
+    c = _client()
+    sign_in(c, "dana-prefs@shop.example", outbox)
+    core_client.license_admin.preferences = {"defaultHoopName": 'Mighty Hoop 5.5" × 5.5"',
+                                             "threadLibrary": [{"id": "t1", "name": "Madeira Polyneon 1147", "brand": "Madeira", "catalogNumber": "1147", "rgb": {"r": 200, "g": 30, "b": 40}}]}
+    try:
+        r = c.post("/proofs/new", data={"title": "Prefs", "contact_name": "P", "contact_email": "prefs@example.com"}, follow_redirects=False)
+        pid = r.headers["location"].rsplit("/", 1)[1]
+        with database.SessionLocal() as db:
+            m = db.execute(database.select(AccountUser).join(User).where(User.email == "dana-prefs@shop.example")).scalar_one()
+            m.core_session_token = "tok"   # signed in through PiperStitch
+            db.commit()
+        page = c.get(f"/proofs/{pid}/compose").text
+        assert 'value="Mighty Hoop 5.5&#34; × 5.5&#34;" selected' in page and "Your PiperStitch default is preselected" in page
+        # A hoop the design doesn't fit is refused with a plain explanation.
+        form = {"garment_template_id": "structured_cap", "garment_zone": "front", "garment_color": "Black", "quantity": "1", "hoop_code": "Cap frame"}
+        r = c.post(f"/proofs/{pid}/compose", data=form, files={"document_file": ("cap.stitchpilot", json.dumps(document), "application/json")}, follow_redirects=False)
+        assert r.headers["location"].endswith("/compose")
+        assert "fit the Cap frame hoop" in c.get(f"/proofs/{pid}/compose").text
+        form["hoop_code"] = '4" × 4"'
+        r = c.post(f"/proofs/{pid}/compose", data=form, files={"document_file": ("cap.stitchpilot", json.dumps(document), "application/json")}, follow_redirects=False)
+        assert r.headers["location"] == f"/proofs/{pid}"
+        page = c.get(f"/proofs/{pid}").text
+        # The thread library feeds the colourway form; the garment switcher is offered.
+        assert 'datalist id="threadLib"' in page and 'value="Madeira Polyneon 1147"' in page and 'data-hex="#c81e28"' in page
+        assert "Show it on a different garment" in page and "Trucker cap" in page and "Flat-bill snapback" in page
+        with database.SessionLocal() as db:
+            vid = db.get(Proof, pid).current_version_id
+        r = c.post(f"/proofs/{pid}/versions/{vid}/garment", data={"garment_template_id": "trucker_cap", "garment_zone": "front", "garment_color": "Red"}, follow_redirects=False)
+        assert r.status_code == 303
+        with database.SessionLocal() as db:
+            v = db.get(ProofVersion, vid)
+            assert v.garment_template_id == "trucker_cap" and v.garment_color == "Red" and v.garment_style_name == "Trucker cap (mesh back)" and v.hoop_code == '4" × 4"'
+            assert v.artifact_rev == 1 and v.placement_name == "Front (foam) panel"
+            assert events.chain(db, pid)[-1].event_type == "restyled"
+            ok, problems = proofs.verify_artifacts(db, v)
+            assert ok, problems
+        assert b"Trucker cap" in pdf_text(c.get(f"/proofs/{pid}/versions/{vid}/proof.pdf").content)
+    finally:
+        core_client.license_admin.preferences = None
