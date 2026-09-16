@@ -173,6 +173,7 @@ details.panel summary { color: var(--navy700); }
 .custbar { background: var(--panel); border-bottom: 1px solid var(--line); border-top: 4px solid var(--blue500); }
 .custbar .wrap { display: flex; align-items: center; gap: 12px; padding: 12px 20px; }
 .custbar .shop { font-weight: 700; color: var(--navy800); font-size: 16px; }
+.custbar .logo { height: 36px; width: auto; max-width: 160px; object-fit: contain; }
 .cwcard { flex: 1; min-width: 140px; cursor: pointer; border: 1.5px solid var(--line); border-radius: var(--radius); padding: 6px; background: #fdfcfa; position: relative; }
 .cwcard:has(input:checked) { border-color: var(--blue500); box-shadow: 0 0 0 3px rgba(26,111,209,0.15); }
 .cwcard input { position: absolute; opacity: 0; }

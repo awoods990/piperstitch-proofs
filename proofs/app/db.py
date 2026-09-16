@@ -56,6 +56,8 @@ class Account(Base):
     reply_to_email: Mapped[str] = mapped_column(String, default="")
     phone: Mapped[str] = mapped_column(String, default="")
     brand_color: Mapped[str] = mapped_column(String, default="#2c6e8f")
+    logo_key: Mapped[str] = mapped_column(String, default="")      # storage key of the shop's logo (PNG/JPEG), "" = none
+    logo_mime: Mapped[str] = mapped_column(String, default="")
     release_gate_policy: Mapped[str] = mapped_column(String, default="soft")  # hard | soft | off
     units: Mapped[str] = mapped_column(String, default="imperial")
     default_response_window_days: Mapped[int] = mapped_column(Integer, default=config.DEFAULT_RESPONSE_WINDOW_DAYS)

@@ -50,8 +50,9 @@ def stage_for(db: Session, proof: Proof, *, has_blockers: bool = False) -> Stage
     elif s == "completed":
         st = Stage(step=6, waiting_on="nobody", headline="Sewn and closed", next_action="", tone="good")
     elif s == "released":
-        st = Stage(step=5, waiting_on="you", headline="Released to production — the run ticket is ready", next_action="Mark as sewn", next_kind="complete",
-                   next_hint="Closes the job once the pieces are stitched.", days_waiting=_days_since(proof.released_at), tone="good")
+        st = Stage(step=5, waiting_on="you", headline="Released to production — print the production sheet", next_action="Print the production sheet", next_kind="sheet",
+                   next_hint="One page for the machine: hoop, backing, needle, size, placement, the approved thread colours in order, and a checklist. Mark the job sewn when the run is done.",
+                   days_waiting=_days_since(proof.released_at), tone="good")
     elif s in ("approved", "approved_with_notes"):
         st = Stage(step=4, waiting_on="you", headline="Approved by the customer" + (" (with notes)" if s == "approved_with_notes" else ""),
                    next_action="Release to production", next_kind="release",
@@ -75,8 +76,8 @@ def stage_for(db: Session, proof: Proof, *, has_blockers: bool = False) -> Stage
         st = Stage(step=2, waiting_on="colleague", headline="Waiting for a colleague to check it", next_action="", next_kind="review",
                    next_hint="Whoever reviews it can pass it or send it back with a note.", days_waiting=_days_since(proof.updated_at))
     elif s == "ready_to_send":
-        st = Stage(step=2, waiting_on="you", headline="Proof built — ready to send", next_action="Send proof", next_kind="send",
-                   next_hint="Emails (and texts, if opted in) a private link. Nothing else changes until they respond.")
+        st = Stage(step=2, waiting_on="you", headline="Proof built — check it, then send", next_action="Send proof", next_kind="send",
+                   next_hint="Look over the render below first. Need to tweak the stitching? Adjust it in PiperStitch, save, and build again. Sending emails (and texts, if opted in) a private link.")
     elif s == "awaiting_art":
         days = _days_since(proof.updated_at)
         st = Stage(step=0, waiting_on="customer", headline=f"Waiting for the customer's artwork — {days} day{'s' if days != 1 else ''}", next_action="", next_kind="none",

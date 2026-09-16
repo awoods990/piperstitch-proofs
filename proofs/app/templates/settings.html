@@ -29,6 +29,13 @@
 {% else %}<p><b>{{ ent.free_proofs_granted - ent.free_proofs_used }}</b> of {{ ent.free_proofs_granted }} free proofs left. Unlimited proofs, automatic chasing, texting and art-by-email are <b>${{ '%.0f'|format(PROOFS_PRICE_CENTS / 100) }}/month</b>, cancel any time. Nothing you've sent is ever locked away.</p>
 <form method="post" action="/billing/checkout"><button class="btn primary">Upgrade to Proofs</button></form>{% endif %}</div>
 
+<div class="panel"><h3>Your logo</h3>
+<div class="row" style="align-items:center">
+<div style="flex:0 0 auto;min-width:0">{% if m.account.logo_key %}<img src="/brand/{{ m.account.id }}/logo?v={{ m.account.logo_key|length }}" alt="" style="max-height:64px;max-width:220px;display:block;background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px">{% else %}<div style="width:120px;height:56px;border:1px dashed var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--label);font-size:12px">no logo yet</div>{% endif %}</div>
+<div><p class="hint">Shown at the top of every page your customers see (artwork upload, proof, certificate), in their emails and on the proof PDF, next to your shop name. PNG with a transparent background looks best; up to 2 MB.</p>
+<form method="post" action="/settings/logo" enctype="multipart/form-data" class="actions"><input type="file" name="logo" accept="image/png,image/jpeg" required><button class="btn">{{ 'Replace logo' if m.account.logo_key else 'Upload logo' }}</button></form>
+{% if m.account.logo_key %}<form method="post" action="/settings/logo" style="margin-top:6px"><input type="hidden" name="remove" value="yes"><button class="btn ghost small">Remove logo</button></form>{% endif %}</div></div></div>
+
 <div class="grid2">
 <div class="panel"><h3>Texting (SMS)</h3>
 <p class="hint">Customers who opt in on the artwork form get the proof link and reminders by text too, can reply STOP any time, and can text photos of artwork straight in.{% if not SMS_CONFIGURED %} <b>Not configured on this server yet</b> — Twilio credentials and a registered number are needed.{% endif %}</p>

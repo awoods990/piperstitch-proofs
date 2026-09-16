@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Certificate of Approval {{ p.reference }}{% endblock %}
 {% block wrapclass %}narrow{% endblock %}
+{% block header %}<header class="custbar" style="border-top-color:{{ account.brand_color }}"><div class="wrap">{% if account.logo_key %}<img class="logo" src="/brand/{{ account.id }}/logo" alt="">{% endif %}<span class="shop">{{ account.shop_name or 'Your embroiderer' }}</span><span style="flex:1"></span><span class="hint">Certificate · {{ p.reference }}</span></div></header>{% endblock %}
 {% block content %}
 <div class="panel" style="margin-top:20px">
 <h1>Certificate of Approval</h1>

@@ -16,8 +16,9 @@
 {% elif stage.next_kind == 'resend' and current and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn primary">{{ stage.next_action }}</button></form>
 {% elif stage.next_kind == 'compose' and can('compose') %}<a class="btn primary" href="/proofs/{{ p.id }}/compose">{{ stage.next_action }}</a>
 {% elif stage.next_kind == 'release' and can('release') %}<form method="post" action="/proofs/{{ p.id }}/release"><button class="btn primary">Release to production</button></form>
+{% elif stage.next_kind == 'sheet' %}<a class="btn primary" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">Print the production sheet</a>{% if can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn">Mark as sewn</button></form>{% endif %}
 {% elif stage.next_kind == 'complete' and can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn primary">Mark as sewn</button></form>
-{% elif stage.next_kind == 'core' %}<a class="btn primary" href="{{ CORE_WEB_APP_URL }}" target="_blank">Open PiperStitch ↗</a>
+{% elif stage.next_kind == 'core' %}<a class="btn primary" href="{{ CORE_WEB_APP_URL }}{% if p.core_project_id %}?project={{ p.core_project_id }}{% endif %}" target="_blank">Open PiperStitch ↗</a>
 {% elif stage.next_kind == 'intake' and can('send') %}<a class="btn primary" href="#artwork">{{ stage.next_action }}</a>
 {% elif stage.next_kind == 'review' and current and can('send') and current.composed_by != m.user_id %}<form method="post" action="/proofs/{{ p.id }}/review/pass"><button class="btn primary">Looks good — pass it</button></form>
 {% elif stage.next_kind == 'triage' %}<a class="btn primary" href="#readiness">See the report</a>
@@ -42,7 +43,7 @@
 
 {% if p.core_project_id and not current %}
 <div style="border-top:1px solid var(--rowline);padding-top:10px;margin-top:10px"><p><b>Digitized in PiperStitch</b> as project <b>{{ p.core_project_name or p.core_project_id }}</b> in your account. Open it there to check the stitches and tweak anything, save, then build the proof from it.</p>
-<div class="actions"><a class="btn" href="{{ CORE_WEB_APP_URL }}" target="_blank">Open PiperStitch ↗</a>{% if can('compose') and not blockers %}<a class="btn primary" href="/proofs/{{ p.id }}/compose">Build the proof</a>{% endif %}</div></div>
+<div class="actions"><a class="btn" href="{{ CORE_WEB_APP_URL }}?project={{ p.core_project_id }}" target="_blank">Open PiperStitch ↗</a>{% if can('compose') and not blockers %}<a class="btn primary" href="/proofs/{{ p.id }}/compose">Build the proof</a>{% endif %}</div></div>
 {% endif %}
 
 {% if not current %}
@@ -66,7 +67,7 @@
 {% if current.review_note %}<div class="flash warn">Reviewer's note: {{ current.review_note }}</div>{% endif %}
 <div class="row">
 <div style="flex:2;min-width:280px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/{{ 'mockup.png' if current.artifact_hashes.mockup else 'render.png' }}" alt="Proof"></div>
-{% if current.artifact_hashes.mockup %}<div class="row" style="margin-top:8px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/render.png" alt="Stitch render" title="Rendered from the actual machine file"></div><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/diagram.png" alt="Placement" title="Measured placement"></div></div>{% endif %}
+{% if current.artifact_hashes.mockup %}<div class="row" style="margin-top:8px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/render.png" alt="Stitch render" title="Rendered from the actual machine file in sewing order; jump threads (trimmed) aren't drawn"></div><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/diagram.png" alt="Placement" title="Measured placement"></div></div>{% endif %}
 {% if current.colorways %}<div class="row" style="margin-top:8px">{% for cw in current.colorways %}<div style="flex:0 0 150px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/cw{{ cw.ordinal }}-render.png" alt=""></div><p class="hint" style="text-align:center">{{ cw.ordinal }}. {{ cw.name }}{% if approval and approval.colorway_id == cw.id %} <span class="badge good">chosen</span>{% endif %}</p></div>{% endfor %}</div>{% endif %}</div>
 <div style="flex:1;min-width:240px">
 <table class="specs">
@@ -92,7 +93,7 @@
 {% if current.status == 'ready_to_send' and p.status == 'internal_review' and can('send') %}
   {% if current.composed_by != m.user_id %}<form method="post" action="/proofs/{{ p.id }}/review/fail" style="display:flex;gap:6px;align-items:center"><input type="text" name="note" placeholder="What needs changing" required style="width:260px"><button class="btn">Send it back</button></form>
   {% else %}<span class="hint">You built this version, so someone else has to pass it.</span>{% endif %}
-{% elif current.status == 'ready_to_send' and can('send') %}<form method="post" action="/proofs/{{ p.id }}/review/request"><button class="btn" title="Holds the proof until a colleague passes it">Ask a colleague to check it first</button></form>
+{% elif current.status == 'ready_to_send' and can('send') %}{% if p.core_project_id %}<a class="btn" href="{{ CORE_WEB_APP_URL }}?project={{ p.core_project_id }}" target="_blank" title="Opens this design in PiperStitch. Save there, then come back and build again — the customer never sees this version.">Adjust in PiperStitch ↗</a>{% endif %}<form method="post" action="/proofs/{{ p.id }}/review/request"><button class="btn" title="Holds the proof until a colleague passes it">Ask a colleague to check it first</button></form>
 {% if can('compose') and current.colorways|length < 3 %}<details><summary>Add an alternate colourway</summary><form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/colorways" style="margin-top:6px"><p class="hint">The customer picks one when they approve — e.g. the same logo on black.</p><label>Name</label><input type="text" name="name" placeholder="On black" required>
 {% for s in current.thread_stops %}<div class="row"><div><label>Stop {{ s.stop_number }} ({{ s.thread_name }})</label><input type="color" name="hex_{{ s.stop_number }}" value="{{ s.hex }}"></div><div><label>Thread name</label><input type="text" name="name_{{ s.stop_number }}" placeholder="Madeira Polyneon 1922"></div><div><label>Code</label><input type="text" name="code_{{ s.stop_number }}"></div></div>{% endfor %}
 <p><button class="btn">Build colourway</button></p></form></details>{% endif %}
@@ -122,7 +123,7 @@
 {# ---- Production ---- #}
 {% if p.status in ('approved','approved_with_notes','released','completed') %}
 <div class="panel"><h3>Production</h3>
-<div class="actions"><a class="btn" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">Run ticket PDF</a><span class="hint">Everything the stitcher needs on one page: thread stops, placement, quantity by size, hoop, file hashes.{% if p.status not in ('released','completed') %} It's marked “not cleared” until you release.{% endif %}</span></div>
+<div class="actions"><a class="btn {{ 'primary' if p.status == 'released' else '' }}" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">{{ 'Print the production sheet' if p.status in ('released','completed') else 'Preview the production sheet' }}</a><span class="hint">One page for the machine: hoop, backing, needle, size, placement, the approved colourway's threads in order, quantity by size and a checklist.{% if p.status not in ('released','completed') %} It's stamped “not cleared” until you release.{% endif %}</span></div>
 {% if p.released_at %}<p class="hint" style="margin-top:8px">Released {{ p.released_at|dt }}{% if p.completed_at %} · sewn {{ p.completed_at|dt }}{% endif %}</p>{% endif %}
 </div>
 {% endif %}

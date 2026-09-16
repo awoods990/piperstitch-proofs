@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ account.shop_name or 'Your embroiderer' }} — proof {{ p.reference }}{% endblock %}
 {% block wrapclass %}narrow{% endblock %}
-{% block header %}<header class="custbar" style="border-top-color:{{ account.brand_color }}"><div class="wrap"><span class="shop">{{ account.shop_name or 'Your embroiderer' }}</span><span style="flex:1"></span><span class="hint">Proof {{ p.reference }}</span></div></header>{% endblock %}
+{% block header %}<header class="custbar" style="border-top-color:{{ account.brand_color }}"><div class="wrap">{% if account.logo_key %}<img class="logo" src="/brand/{{ account.id }}/logo" alt="">{% endif %}<span class="shop">{{ account.shop_name or 'Your embroiderer' }}</span><span style="flex:1"></span><span class="hint">Proof {{ p.reference }}</span></div></header>{% endblock %}
 {% block content %}
 {% set decided = v.status in ('approved','approved_with_notes','declined') %}
 <h1>{{ p.title }}</h1>
@@ -27,7 +27,7 @@
 {% if v.artifact_hashes.mockup %}<div class="render" style="margin-bottom:10px"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/mockup.png" alt="On the garment at relative size"></div>
 <p class="hint" style="margin:0 0 10px">On a {{ v.garment_color|lower }} {{ TEMPLATE_BY_ID[v.garment_template_id].name|lower if v.garment_template_id in TEMPLATE_BY_ID else 'garment' }} at relative size — a drawing, not a photograph. Below, the stitches themselves:</p>{% endif %}
 <div class="render" id="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/render.png" alt="Your logo as it will sew" id="renderImg"></div>
-<p class="hint" style="margin:8px 0 0">Pinch or zoom to inspect. This is rendered from the actual machine file at true scale.</p>
+<p class="hint" style="margin:8px 0 0">Pinch or zoom to inspect. This is rendered from the actual machine file at true scale, as the finished piece will look — the connecting threads between sections are trimmed off by the embroiderer and aren't shown.</p>
 <div class="honesty">{{ HONESTY_NOTE }}</div>
 <table class="specs">
 <tr><td>Finished size</td><td>{{ v.width_mm|inches }} × {{ v.height_mm|inches }} in <span class="hint">({{ '%.2f'|format(v.width_mm) }} × {{ '%.2f'|format(v.height_mm) }} mm)</span></td></tr>
@@ -78,7 +78,6 @@
 </form>
 </div>
 
-<details class="panel"><summary>Cancel this job instead</summary><form method="post" action="/p/{{ token }}/decline"><label>Why? (optional)</label><input type="text" name="reason"><p><button class="btn danger">Decline the proof</button></p></form></details>
 {% endif %}
 
 <div class="panel" id="questions">

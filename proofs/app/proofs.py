@@ -258,6 +258,7 @@ def compose_version(db: Session, proof: Proof, user: Optional[User], *, document
         fabric_name=texts.FABRIC_NAMES.get(fabric, fabric), stabilizer=v.stabilizer_advice, terms_body=terms.body, message=v.message_body,
         price_line=v.price_line, design_hash=v.design_hash, supersedes=previous.version_number if previous else None,
         mockup_png=mockup or None, diagram_png=diagram or None,
+        logo_png=storage.get(account.logo_key) if account.logo_key and storage.exists(account.logo_key) else None,
     )
     hashes = {"pdf": stitch.sha256(pdf), "render": stitch.sha256(render), "hero": stitch.sha256(hero), "social": stitch.sha256(social),
               "mockup": stitch.sha256(mockup) if mockup else "", "diagram": stitch.sha256(diagram) if diagram else "",

@@ -8,17 +8,26 @@ from __future__ import annotations
 
 from html import escape
 
+from . import config
 from .db import Account, Contact, Proof
+
+
+def logo_url(account: Account) -> str:
+    """Absolute URL of the shop's logo for emails and PDFs, or ""."""
+    if not account.logo_key or not config.PUBLIC_BASE_URL:
+        return ""
+    return f"{config.PUBLIC_BASE_URL.rstrip('/')}/brand/{account.id}/logo"
 
 
 def _wrap(account: Account, title: str, paragraphs: list[str], button_text: str, button_url: str, footnote: str) -> str:
     color = account.brand_color or "#2c6e8f"
     shop = escape(account.shop_name or "Your embroiderer")
     body = "".join(f'<p style="margin:0 0 14px;font-size:16px;line-height:1.5;color:#12161c">{escape(p)}</p>' for p in paragraphs)
+    logo = f'<img src="{escape(logo_url(account))}" alt="{shop}" style="display:block;max-height:56px;max-width:220px;margin:0 0 10px">' if logo_url(account) else ""
     return f"""<!doctype html><html><body style="margin:0;background:#f7f3ec;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f7f3ec;padding:24px 12px"><tr><td align="center">
 <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="max-width:560px;width:100%;background:#fffffe;border-radius:14px;border-top:5px solid {color}">
-<tr><td style="padding:26px 28px 6px"><div style="font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8b9099">{shop}</div>
+<tr><td style="padding:26px 28px 6px">{logo}<div style="font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8b9099">{shop}</div>
 <h1 style="margin:6px 0 16px;font-size:22px;line-height:1.25;color:#12161c">{escape(title)}</h1>{body}
 <p style="margin:22px 0"><a href="{escape(button_url)}" style="display:inline-block;background:{color};color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:14px 26px;border-radius:10px">{escape(button_text)}</a></p>
 <p style="margin:0 0 6px;font-size:13px;color:#5d6472">Or copy this link into your browser:<br><a href="{escape(button_url)}" style="color:{color};word-break:break-all">{escape(button_url)}</a></p>

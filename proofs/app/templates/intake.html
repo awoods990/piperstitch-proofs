@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ account.shop_name or 'Your embroiderer' }} — send your artwork{% endblock %}
 {% block wrapclass %}narrow{% endblock %}
-{% block header %}<header class="custbar" style="border-top-color:{{ account.brand_color }}"><div class="wrap"><span class="shop">{{ account.shop_name or 'Your embroiderer' }}</span><span style="flex:1"></span><span class="hint">{{ p.reference }}</span></div></header>{% endblock %}
+{% block header %}<header class="custbar" style="border-top-color:{{ account.brand_color }}"><div class="wrap">{% if account.logo_key %}<img class="logo" src="/brand/{{ account.id }}/logo" alt="">{% endif %}<span class="shop">{{ account.shop_name or 'Your embroiderer' }}</span><span style="flex:1"></span><span class="hint">{{ p.reference }}</span></div></header>{% endblock %}
 {% block content %}
 <h1>Send us your artwork</h1>
 <p class="hint">For <b>{{ p.title }}</b>. Upload the best file you have — the original from your designer is ideal, but a phone photo of a card works too. We'll tell you straight away if anything about it will be a problem for embroidery.</p>

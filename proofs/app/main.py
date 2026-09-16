@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import auth, billing, colorways, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, sms, stages, storage, stitch, texts, tokens
-from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, File, InboundEmail, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, TriageFinding, TriageReport, User
+from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Colorway, Contact, File, InboundEmail, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, ThreadStop, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
 
@@ -731,17 +732,23 @@ def run_ticket(proof_id: str, m: AccountUser = Depends(require_member), db: Sess
     if v is None:
         raise HTTPException(404, "Nothing composed yet.")
     approval = db.execute(select(ApprovalRecord).where(ApprovalRecord.proof_version_id == v.id)).scalar_one_or_none()
-    render = storage.get(proofs._artifact_key(p, v.version_number, "render.png"))
+    # The approved colourway's threads and render, not the default's.
+    cw = db.get(Colorway, approval.colorway_id) if approval and approval.colorway_id else None
+    stops = list(db.execute(select(ThreadStop).where(ThreadStop.proof_version_id == v.id, ThreadStop.colorway_id == cw.id).order_by(ThreadStop.stop_number)).scalars()) if cw else list(v.thread_stops)
+    render = storage.get(proofs._artifact_key(p, v.version_number, f"cw{cw.ordinal}-render.png" if cw else "render.png"))
     diagram_key = proofs._artifact_key(p, v.version_number, "diagram.png")
+    logo = storage.get(m.account.logo_key) if m.account.logo_key and storage.exists(m.account.logo_key) else None
     pdf = pdfgen.run_ticket_pdf(diagram_png=storage.get(diagram_key) if storage.exists(diagram_key) else None,
         shop_name=m.account.shop_name or "PiperStitch Proofs", reference=p.reference, title=p.title, version_number=v.version_number, render_png=render,
-        stops=[proofs.stop_dict(s) for s in v.thread_stops], width_mm=v.width_mm, height_mm=v.height_mm, stitch_count=v.stitch_count,
+        stops=[proofs.stop_dict(s) for s in stops], width_mm=v.width_mm, height_mm=v.height_mm, stitch_count=v.stitch_count,
+        fabric_code=v.fabric_code, colorway_name=(f"{cw.ordinal}. {cw.name}" if cw else ("1. As shown" if v.colorways else "")),
+        approval_notes=approval.notes if approval else "", customer=p.contact.display_name or p.contact.email, due_date=p.due_date or "", logo_png=logo,
         color_change_count=v.color_change_count, trim_count=v.trim_count, hoop=v.hoop_code, fabric_name=texts.FABRIC_NAMES.get(v.fabric_code, v.fabric_code),
         stabilizer=v.stabilizer_advice, garment=v.garment_style_name, garment_color=v.garment_color, placement=v.placement_name, placement_notes=v.placement_notes,
         quantity=v.quantity, size_breakdown=v.size_breakdown, estimated_run=_duration(v.estimated_run_seconds),
         approved_at=approval.approved_at if approval else "", approved_by=approval.signer_name_typed if approval else "",
         machine_files=v.artifact_hashes.get("machine_files", {}), cleared=p.status in ("released", "completed"))
-    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{p.reference}-run-ticket.pdf"'})
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{p.reference}-production-sheet.pdf"'})
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -771,6 +778,60 @@ def settings_save(request: Request, m: AccountUser = Depends(require_can("settin
     db.commit()
     request.session["flash"] = "Settings saved."
     return RedirectResponse("/settings", status_code=303)
+
+
+@app.post("/settings/logo")
+async def settings_logo(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
+    """The shop's own logo on every customer page, email and PDF. PNG or
+    JPEG up to 2 MB; re-encoded through Pillow so only pixels are stored."""
+    form = await request.form()
+    a = m.account
+    if str(form.get("remove", "")) == "yes":
+        a.logo_key, a.logo_mime = "", ""
+        db.commit()
+        request.session["flash"] = "Logo removed."
+        return RedirectResponse("/settings", status_code=303)
+    upload = form.get("logo")
+    data = await upload.read() if upload is not None and getattr(upload, "filename", "") else b""
+    if not data:
+        request.session["flash_error"] = "Choose a PNG or JPEG file first."
+        return RedirectResponse("/settings", status_code=303)
+    if len(data) > 2 * 1024 * 1024:
+        request.session["flash_error"] = "That file is over 2 MB. A PNG around 600 px wide is plenty."
+        return RedirectResponse("/settings", status_code=303)
+    try:
+        import io
+        from PIL import Image, ImageOps
+        im = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+        im.load()
+        has_alpha = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
+        im = im.convert("RGBA" if has_alpha else "RGB")
+        im.thumbnail((1200, 400))
+        out = io.BytesIO()
+        if has_alpha:
+            im.save(out, format="PNG", optimize=True)
+            mime = "image/png"
+        else:
+            im.save(out, format="JPEG", quality=88)
+            mime = "image/jpeg"
+    except Exception:
+        request.session["flash_error"] = "That doesn't look like a PNG or JPEG image."
+        return RedirectResponse("/settings", status_code=303)
+    key = f"accounts/{a.id}/brand/logo-{int(time.time())}.{'png' if mime == 'image/png' else 'jpg'}"
+    storage.put(key, out.getvalue())
+    a.logo_key, a.logo_mime = key, mime
+    db.commit()
+    request.session["flash"] = "Logo saved. It now appears on your customer pages, emails and proof PDFs."
+    return RedirectResponse("/settings", status_code=303)
+
+
+@app.get("/brand/{account_id}/logo")
+def brand_logo(account_id: str, db: Session = Depends(get_db)):
+    """Public: the logo is on pages and in emails the customer sees anyway."""
+    a = db.get(Account, account_id)
+    if a is None or not a.logo_key or not storage.exists(a.logo_key):
+        raise HTTPException(404)
+    return Response(content=storage.get(a.logo_key), media_type=a.logo_mime or "image/png", headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.post("/settings/invite")

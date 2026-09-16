@@ -137,7 +137,8 @@ def render_png(digitized: dict, *, pixels_per_mm: float = 12.0, padding_mm: floa
     def px(x: float, y: float) -> tuple[float, float]:
         return ((x - analysis.min_x + padding_mm) * ppm * scale, (y - analysis.min_y + padding_mm) * ppm * scale)
 
-    thread_w = max(1, int(0.42 * ppm * scale))
+    thread_w = max(1, int(0.48 * ppm * scale))   # polyester 40wt flattens to about this on cloth
+    shadow_w = max(1, int(0.42 * ppm * scale))
     shadow_off = max(1, int(0.25 * ppm * scale))
     # Pass 1: shadow. Pass 2: thread. Pass 3: highlight core.
     segments: list[tuple[int, tuple, tuple]] = []
@@ -159,17 +160,22 @@ def render_png(digitized: dict, *, pixels_per_mm: float = 12.0, padding_mm: floa
             last = None
     shadow = tuple(max(0, c - 70) for c in background)
     for _b, a, b in segments:
-        draw.line([(a[0] + shadow_off, a[1] + shadow_off), (b[0] + shadow_off, b[1] + shadow_off)], fill=shadow, width=thread_w)
-    for b_idx, a, b in segments:
+        draw.line([(a[0] + shadow_off, a[1] + shadow_off), (b[0] + shadow_off, b[1] + shadow_off)], fill=shadow, width=shadow_w)
+    # Thread and highlight are drawn together, stitch by stitch, in sewing
+    # order -- so underlay, travel runs and earlier colours end up under the
+    # stitching that covers them, the way the finished piece looks. Jumps
+    # (the threads the embroiderer trims) are never drawn.
+    core_w = max(1, thread_w // 3)
+    palette = {}
+    for b_idx in set(b for b, _a, _c in segments):
         hex_color = colors[b_idx] if b_idx < len(colors) else "#000000"
         rgb = tuple(int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+        palette[b_idx] = (rgb, tuple(min(255, c + 45) for c in rgb))
+    for b_idx, a, b in segments:
+        rgb, hi = palette[b_idx]
         draw.line([a, b], fill=rgb, width=thread_w)
         draw.ellipse([a[0] - thread_w / 2, a[1] - thread_w / 2, a[0] + thread_w / 2, a[1] + thread_w / 2], fill=rgb)
-    core_w = max(1, thread_w // 3)
-    for b_idx, a, b in segments:
-        hex_color = colors[b_idx] if b_idx < len(colors) else "#000000"
-        rgb = tuple(min(255, int(hex_color[i:i + 2], 16) + 45) for i in (1, 3, 5))
-        draw.line([a, b], fill=rgb, width=core_w)
+        draw.line([a, b], fill=hi, width=core_w)
     img = img.resize((W // scale, H // scale), Image.LANCZOS)
     out = io.BytesIO()
     img.save(out, format="PNG", optimize=False, compress_level=6)

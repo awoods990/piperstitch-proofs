@@ -211,8 +211,10 @@ def test_release_produces_a_run_ticket_and_needs_an_approved_version(document, o
     ticket = c.get(f"/proofs/{proof_id}/run-ticket.pdf")
     assert ticket.headers["content-type"] == "application/pdf"
     text = pdf_text(ticket.content)
-    for needle in (b"CLEARED TO SEW", b"4x4", b"Generic Red", b"cap backing", b"Left chest", b"7,173"):
+    for needle in (b"CLEARED TO SEW", b"4x4", b"Generic Red", b"cap backing", b"Left chest", b"7,173", b"please rush", b"80/12", b"Checklist", b"M \\327 10"):
         assert needle in text, needle
+    # The job page leads with printing the sheet.
+    assert "Print the production sheet" in c.get(f"/proofs/{proof_id}").text
     # Machine files now download without a warning; before release the soft gate flagged them.
     with database.SessionLocal() as db:
         vid = db.get(Proof, proof_id).current_version_id
@@ -501,3 +503,32 @@ def test_every_shop_page_renders(document, outbox):
     assert cust.get(url).status_code == 200
     assert cust.get(url + "/versions/1").status_code == 200
     assert cust.get("/verify").status_code == 200
+
+
+def test_shop_logo_appears_on_customer_pages_emails_and_the_proof_pdf(document, outbox):
+    import io
+    from PIL import Image
+    c = _client()
+    sign_in(c, "dana-logo@shop.example", outbox)
+    png = io.BytesIO()
+    Image.new("RGBA", (300, 100), (26, 111, 209, 255)).save(png, format="PNG")
+    r = c.post("/settings/logo", files={"logo": ("logo.png", png.getvalue(), "image/png")}, follow_redirects=False)
+    assert r.status_code == 303
+    settings = c.get("/settings").text
+    assert "Replace logo" in settings
+    logo_url = re.search(r"/brand/([a-f0-9]+)/logo", settings).group(0)
+    r = c.get(logo_url)
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert Image.open(io.BytesIO(r.content)).size == (300, 100)
+    proof_id = create_and_compose(c, document, email="logo-cust@example.com")
+    url = send_current(c, proof_id, outbox, "logo-cust@example.com")
+    mail = outbox.latest_to("logo-cust@example.com")
+    assert f"http://testserver{logo_url}" in mail["html"]
+    customer = TestClient(app)
+    page = customer.get(url).text
+    assert logo_url in page and "Cancel this job" not in page and "Decline" not in page
+    pdf = customer.get(url + "/proof.pdf").content
+    assert pdf.count(b"/Subtype /Image") >= 2   # render (+ mockup) and the logo
+    # Remove it and the pages go back to name only.
+    c.post("/settings/logo", data={"remove": "yes"}, follow_redirects=False)
+    assert logo_url not in customer.get(url).text and c.get(logo_url).status_code == 404
