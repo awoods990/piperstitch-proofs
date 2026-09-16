@@ -3,6 +3,7 @@
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><h1 style="margin:0">Pipeline</h1><span class="spacer" style="flex:1"></span>
 {% if not ent.proofs_enabled %}<span class="badge {% if ent.can_send %}warn{% else %}bad{% endif %}">{{ ent.free_proofs_granted - ent.free_proofs_used }} free proof{{ '' if ent.free_proofs_granted - ent.free_proofs_used == 1 else 's' }} left</span>{% endif %}
 {% if m.role != 'stitcher' %}<a class="btn" href="/proofs/new">New proof</a>{% endif %}</div>
+{% if bounced %}<div class="flash error">Email bounced on {% for b in bounced %}<a href="/proofs/{{ b.id }}">{{ b.reference }}</a>{% if not loop.last %}, {% endif %}{% endfor %} — check the address and resend.</div>{% endif %}
 <div class="board">
 {% for label, items in columns %}
 <div class="col"><h3>{{ label }} ({{ items|length }})</h3>

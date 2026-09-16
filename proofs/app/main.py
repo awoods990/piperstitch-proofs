@@ -185,8 +185,9 @@ def board(request: Request, m: AccountUser = Depends(require_member), db: Sessio
     for label, states in BOARD_COLUMNS:
         columns.append((label, [p for p in rows if p.status in states]))
     ent = proofs.entitlements(db, m.account)
+    bounced = proofs.bounced_proofs(db, m.account_id)
     db.commit()
-    return templates.TemplateResponse(request, "board.html", {"m": m, "columns": columns, "ent": ent, "flash": request.session.pop("flash", None),
+    return templates.TemplateResponse(request, "board.html", {"m": m, "columns": columns, "ent": ent, "bounced": bounced, "flash": request.session.pop("flash", None),
                                                                "error": request.session.pop("flash_error", None)})
 
 
@@ -372,6 +373,40 @@ def approve_on_behalf(request: Request, proof_id: str, signer_name: str = Form("
                                                        user_agent=ua, method="on_behalf", on_behalf_channel=channel, on_behalf_evidence=evidence,
                                                        recorded_by=m.user, base_url=_base_url(request)),
                    "Approval recorded on the customer's behalf; certificate written.", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/review/request")
+def review_request(request: Request, proof_id: str, m: AccountUser = Depends(require_can("send")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    v = db.get(ProofVersion, p.current_version_id) if p.current_version_id else None
+    if v is None:
+        raise HTTPException(404)
+    return _action(request, db, lambda: proofs.request_internal_review(db, v, m.user), "Sent for internal review.", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/review/pass")
+def review_pass(request: Request, proof_id: str, m: AccountUser = Depends(require_can("send")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    v = db.get(ProofVersion, p.current_version_id)
+    return _action(request, db, lambda: proofs.pass_internal_review(db, v, m.user), "Passed review; ready to send.", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/review/fail")
+def review_fail(request: Request, proof_id: str, note: str = Form(""), m: AccountUser = Depends(require_can("send")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    v = db.get(ProofVersion, p.current_version_id)
+    return _action(request, db, lambda: proofs.fail_internal_review(db, v, m.user, note=note), "Sent back with your note.", f"/proofs/{p.id}")
+
+
+@app.post("/webhooks/postmark/bounce")
+async def postmark_bounce(request: Request, db: Session = Depends(get_db)):
+    """Postmark's bounce webhook (configure with a secret token in the URL: /webhooks/postmark/bounce?token=...)."""
+    if config.WEBHOOK_TOKEN and request.query_params.get("token") != config.WEBHOOK_TOKEN:
+        raise HTTPException(401)
+    body = await request.json()
+    n = proofs.record_bounce(db, email=str(body.get("Email") or body.get("Recipient") or ""), reason=str(body.get("Type") or body.get("Description") or "bounce"))
+    db.commit()
+    return {"recorded": n}
 
 
 @app.post("/proofs/{proof_id}/snooze")

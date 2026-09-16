@@ -50,7 +50,13 @@
 {% if p.status not in ('released','completed') and m.account.release_gate_policy != 'off' %}<p class="stamp">Release gate: <b>{{ m.account.release_gate_policy }}</b> — {% if m.account.release_gate_policy == 'hard' %}machine files are withheld until release.{% else %}machine files download with an unapproved warning until release.{% endif %}</p>{% endif %}
 
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
-{% if current.status == 'ready_to_send' and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/send"><button class="btn">Send to {{ p.contact.email or 'customer' }}</button></form>{% endif %}
+{% if current.status == 'ready_to_send' and p.status == 'internal_review' and can('send') %}
+  {% if current.composed_by != m.user_id %}<form method="post" action="/proofs/{{ p.id }}/review/pass"><button class="btn">Pass review</button></form>
+  <form method="post" action="/proofs/{{ p.id }}/review/fail" style="display:flex;gap:6px"><input type="text" name="note" placeholder="What needs changing" required><button class="btn secondary">Send back</button></form>
+  {% else %}<span class="stamp">Waiting for someone else to review it.</span>{% endif %}
+{% elif current.status == 'ready_to_send' and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/send"><button class="btn">Send to {{ p.contact.email or 'customer' }}</button></form>
+<form method="post" action="/proofs/{{ p.id }}/review/request"><button class="btn secondary" title="Ask a colleague to check it before the customer sees it">Internal review</button></form>{% endif %}
+{% if current.review_note %}<p class="stamp" style="width:100%">Reviewer's note: {{ current.review_note }}</p>{% endif %}
 {% if current.status in ('sent','viewed','changes_requested','expired','declined') and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn secondary">Resend link</button></form>
 <form method="post" action="/proofs/{{ p.id }}/snooze"><input type="hidden" name="days" value="3"><button class="btn secondary" title="No reminders to the customer for 3 days">Snooze reminders</button></form>{% endif %}
 {% if current.status in ('changes_requested','expired','declined','approved','approved_with_notes','sent','viewed') and p.status not in ('released','completed','void') and can('compose') %}<a class="btn secondary" href="/proofs/{{ p.id }}/compose">Compose version {{ current.version_number + 1 }}</a>{% endif %}

@@ -56,6 +56,9 @@ POSTMARK_API_TOKEN = os.environ.get("POSTMARK_API_TOKEN", "")
 POSTMARK_FROM = os.environ.get("POSTMARK_FROM", "")
 POSTMARK_MESSAGE_STREAM = os.environ.get("POSTMARK_MESSAGE_STREAM", "outbound")
 
+# Shared secret for provider webhooks (Postmark bounces, inbound mail): the URL carries ?token=...
+WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "")
+
 # --- certificates -------------------------------------------------------------
 # Optional Ed25519 private key (base64url, 32 bytes) used to sign every
 # certificate in addition to the hash chain. Without it certificates are

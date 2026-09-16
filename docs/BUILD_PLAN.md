@@ -40,8 +40,8 @@ estimator, thread inventory, internal review, Stripe checkout for the add-on
 | Change requests land as a checklist with pins; Core overlays the pins | ✅ checklist with normalized pins (Core overlay is a later Core hook) |
 | Version compare renders v1 against v2 with a difference view on a phone | ◐ side-by-side on the proof page; slider/difference views not yet |
 | Both reminder cadences fire on schedule, respect quiet hours, suppress correctly, cancel on customer action | ✅ email + shop task steps (`reminders.py`); SMS steps are logged as suppressed until Phase 3 |
-| Internal reviewer can fail a proof back with a note | ⏳ |
-| A hard bounce raises an in-app banner within 60 s | ⏳ (bounces are recorded as events; no banner) |
+| Internal reviewer can fail a proof back with a note; can't review own version | ✅ |
+| A hard bounce raises an in-app banner within 60 s | ✅ via the Postmark bounce webhook (`/webhooks/postmark/bounce?token=`) → board banner + shop email |
 
 Also in: intake links with the default question set (answers land as data, SMS
 consent evidence on the contact), shop direct upload, single-use intake

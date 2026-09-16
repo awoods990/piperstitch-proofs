@@ -240,6 +240,8 @@ class ProofVersion(Base):
     response_expires_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     superseded_by_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     change_summary: Mapped[str] = mapped_column(Text, default="")
+    review_note: Mapped[str] = mapped_column(Text, default="")
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     proof: Mapped[Proof] = relationship(back_populates="versions")
     thread_stops: Mapped[list["ThreadStop"]] = relationship(back_populates="version", order_by="ThreadStop.stop_number")

@@ -160,3 +160,45 @@ def test_intake_cadence_nudges_for_artwork(outbox):
         assert len([x for x in _sent_reminders(db, pid) if x.status == "sent"]) == 1
     mail = outbox.latest_to("lee@example.com")
     assert mail and "still need your artwork" in mail["subject"] and "/i/" in mail["text"]
+
+
+def test_internal_review_needs_a_second_person_and_a_bounce_raises_a_banner(document, outbox):
+    owner = TestClient(app)
+    sign_in(owner, "dana-review@shop.example", outbox)
+    pid = create_and_compose(owner, document, email="rev@example.com")
+    # Alone on the account: review isn't available.
+    owner.post(f"/proofs/{pid}/review/request", follow_redirects=False)
+    with database.SessionLocal() as db:
+        assert db.get(Proof, pid).status == "ready_to_send"
+    owner.post("/settings/invite", data={"email": "sam-review@shop.example", "role": "sales"}, follow_redirects=False)
+    owner.post(f"/proofs/{pid}/review/request", follow_redirects=False)
+    with database.SessionLocal() as db:
+        p = db.get(Proof, pid)
+        assert p.status == "internal_review"
+        vid = p.current_version_id
+    # The composer can't review their own version; sending is blocked meanwhile.
+    owner.post(f"/proofs/{pid}/review/pass", follow_redirects=False)
+    owner.post(f"/proofs/{pid}/versions/{vid}/send", follow_redirects=False)
+    with database.SessionLocal() as db:
+        assert db.get(Proof, pid).status == "internal_review"
+    sam = TestClient(app)
+    sign_in(sam, "sam-review@shop.example", outbox)
+    sam.post(f"/proofs/{pid}/review/fail", data={"note": "Red is too orange, use 1147"}, follow_redirects=False)
+    with database.SessionLocal() as db:
+        p = db.get(Proof, pid)
+        assert p.status == "digitizing" and db.get(ProofVersion, vid).review_note.startswith("Red is")
+        types = [e.event_type for e in __import__("app.events", fromlist=["x"]).chain(db, pid)]
+        assert "internal_review_changes_requested" in types
+    assert "Reviewer" in owner.get(f"/proofs/{pid}").text
+    # Compose v2, review passes, send works; then a bounce shows on the board.
+    from tests.test_phase1 import json as _json
+    owner.post(f"/proofs/{pid}/compose", data={"quantity": "1"}, files={"document_file": ("cap.stitchpilot", _json.dumps(document), "application/json")}, follow_redirects=False)
+    owner.post(f"/proofs/{pid}/review/request", follow_redirects=False)
+    sam.post(f"/proofs/{pid}/review/pass", follow_redirects=False)
+    with database.SessionLocal() as db:
+        p = db.get(Proof, pid)
+        assert p.status == "ready_to_send" and db.get(ProofVersion, p.current_version_id).version_number == 2
+    send_current(owner, pid, outbox, "rev@example.com")
+    r = TestClient(app).post("/webhooks/postmark/bounce", json={"Email": "rev@example.com", "Type": "HardBounce"})
+    assert r.json()["recorded"] == 1
+    assert "Email bounced" in owner.get("/proofs").text

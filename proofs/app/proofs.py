@@ -80,7 +80,9 @@ def rollup_status(db: Session, proof: Proof) -> str:
     or its current version's status. Derived, never hand-set."""
     if proof.status in ("void", "completed", "released"):
         return proof.status
-    if proof.status in ("awaiting_art", "intake_expired", "art_received", "internal_review") and not proof.current_version_id:
+    if proof.status == "internal_review":
+        return proof.status
+    if proof.status in ("awaiting_art", "intake_expired", "art_received") and not proof.current_version_id:
         return proof.status
     if proof.current_version_id:
         v = db.get(ProofVersion, proof.current_version_id)
@@ -313,6 +315,78 @@ def conditions_snapshot(v: ProofVersion) -> dict:
     }
 
 
+# --- internal review (PRD: optional second set of eyes) ----------------------------------
+
+def request_internal_review(db: Session, v: ProofVersion, user: User) -> None:
+    proof = db.get(Proof, v.proof_id)
+    if v.status != "ready_to_send" or proof.current_version_id != v.id:
+        raise TransitionError("Only the current, unsent version can go for review.")
+    seats = list(db.execute(select(AccountUser).where(AccountUser.account_id == proof.account_id, AccountUser.disabled_at.is_(None))).scalars())
+    if len(seats) < 2:
+        raise TransitionError("Internal review needs a second person on the account.")
+    proof.status = "internal_review"
+    proof.updated_at = utcnow()
+    events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="internal_review_requested", actor_type="user", actor_id=user.id)
+    account = db.get(Account, proof.account_id)
+    for s in seats:
+        if s.user_id != user.id and s.role in ("owner", "sales"):
+            emailer.send(to_email=s.user.email, subject=f"Review requested: {proof.reference} {proof.title}",
+                         text=f"{user.email} asked for a second look at version {v.version_number} before it goes to the customer.\n\n{config.PUBLIC_BASE_URL}/proofs/{proof.id}")
+
+
+def pass_internal_review(db: Session, v: ProofVersion, user: User) -> None:
+    proof = db.get(Proof, v.proof_id)
+    if proof.status != "internal_review":
+        raise TransitionError("This version isn't in review.")
+    if v.composed_by == user.id:
+        raise TransitionError("You composed this version; someone else has to review it.")
+    v.reviewed_by = user.id
+    proof.status = "ready_to_send"
+    _refresh(db, proof)
+    events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="internal_review_passed", actor_type="user", actor_id=user.id)
+
+
+def fail_internal_review(db: Session, v: ProofVersion, user: User, *, note: str) -> None:
+    proof = db.get(Proof, v.proof_id)
+    if proof.status != "internal_review":
+        raise TransitionError("This version isn't in review.")
+    if v.composed_by == user.id:
+        raise TransitionError("You composed this version; someone else has to review it.")
+    if not note.strip():
+        raise TransitionError("Say what needs changing.")
+    v.review_note = note.strip()
+    v.reviewed_by = user.id
+    proof.status = "digitizing"
+    proof.updated_at = utcnow()
+    events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="internal_review_changes_requested", actor_type="user", actor_id=user.id, payload={"note": note.strip()})
+
+
+def bounced_proofs(db: Session, account_id: str) -> list[Proof]:
+    """Proofs whose most recent delivery attempt bounced (the in-app banner)."""
+    out = []
+    for p in db.execute(select(Proof).where(Proof.account_id == account_id, Proof.status.in_(("sent", "viewed", "awaiting_art")))).scalars():
+        last = next((e for e in reversed(events.chain(db, p.id)) if e.event_type in ("delivered", "bounced")), None)
+        if last is not None and last.event_type == "bounced":
+            out.append(p)
+    return out
+
+
+def record_bounce(db: Session, *, email: str, reason: str) -> int:
+    """A provider's bounce webhook: mark the newest sent proof to that address."""
+    email = (email or "").strip().lower()
+    n = 0
+    for c in db.execute(select(Contact).where(Contact.email == email)).scalars():
+        p = db.execute(select(Proof).where(Proof.contact_id == c.id, Proof.status.in_(("sent", "viewed", "awaiting_art"))).order_by(Proof.updated_at.desc())).scalars().first()
+        if p is None:
+            continue
+        events.append(db, proof_id=p.id, proof_version_id=p.current_version_id, event_type="bounced", actor_type="system", payload={"to": email, "reason": reason})
+        account = db.get(Account, p.account_id)
+        if account.reply_to_email:
+            emailer.send(to_email=account.reply_to_email, subject=f"Bounced: {p.reference} {p.title}", text=f"Email to {email} bounced ({reason}). Check the address and resend the link.")
+        n += 1
+    return n
+
+
 # --- send ---------------------------------------------------------------------------
 
 def send_version(db: Session, v: ProofVersion, user: Optional[User], *, base_url: str = "") -> str:
@@ -324,6 +398,8 @@ def send_version(db: Session, v: ProofVersion, user: Optional[User], *, base_url
     contact = db.get(Contact, proof.contact_id)
     if proof.status in PROOF_TERMINAL:
         raise TransitionError("This proof is closed.")
+    if proof.status == "internal_review":
+        raise TransitionError("This version is in internal review; it can't be sent until the reviewer passes it.")
     if v.status != "ready_to_send":
         raise TransitionError(f"Version {v.version_number} is {v.status.replace('_', ' ')}; only a composed, unsent version can be sent.")
     if not v.terms_version_id:
