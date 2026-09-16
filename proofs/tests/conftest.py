@@ -146,6 +146,25 @@ class FakeLicenseAdmin:
     def verify_signin(self, email, code):
         raise AssertionError("tests use Proofs codes")
 
+    # Handoffs between the app and Proofs: {code: (token, session dict)}.
+    handoffs: dict[str, tuple] = {}
+    sessions: dict[str, dict] = {}    # token -> {customer_id, email, name}
+
+    def create_handoff(self, token, target="core"):
+        self.last_handoff = (token, target)
+        code = f"hand-{len(self.handoffs) + 1}"
+        self.handoffs[code] = (token, target)
+        return code
+
+    def redeem_handoff(self, code, user_agent=""):
+        if code not in self.handoffs:
+            raise core_client.CoreError("That link has expired -- open the app again and try once more.")
+        token, target = self.handoffs.pop(code)
+        who = self.sessions[token]
+        new_token = f"{token}-via-{target}"
+        self.sessions[new_token] = who
+        return new_token, core_client.CoreSession(customer_id=who["customer_id"], email=who["email"], name=who.get("name", ""), status="active", entitled=True)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _init():

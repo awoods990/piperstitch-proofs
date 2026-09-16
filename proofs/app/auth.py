@@ -115,6 +115,41 @@ def verify_code(db: Session, email: str, code: str) -> tuple[str, AccountUser]:
     return plaintext, member
 
 
+def sign_in_with_handoff(db: Session, code: str, user_agent: str = "") -> tuple[str, AccountUser]:
+    """Arriving from PiperStitch already signed in: the app minted a
+    one-time code with License Admin; redeeming it gives this service
+    its own PiperStitch session for the same customer. Same account and
+    membership as an email-code sign-in would create."""
+    try:
+        core_token, state = core_client.license_admin.redeem_handoff(code, user_agent=user_agent)
+    except core_client.CoreError as e:
+        raise AuthError(str(e)) from e
+    member = _ensure_owner(db, email=state.email, name=state.name, core_customer_id=state.customer_id)
+    member.core_session_token = core_token
+    if not member.accepted_at:
+        member.accepted_at = utcnow()
+    member.user.last_seen_at = utcnow()
+    plaintext = secrets.token_urlsafe(32)
+    db.add(WebSession(token_hash=_hash(plaintext), account_user_id=member.id))
+    db.flush()
+    return plaintext, member
+
+
+def core_handoff_url(member: AccountUser, *, path_query: str = "") -> Optional[str]:
+    """A link into PiperStitch that signs the owner in on arrival (their
+    stored PiperStitch session mints a handoff code). None when this
+    member never signed in through PiperStitch -- the caller falls back
+    to a plain link."""
+    if not member.core_session_token or not core_client.license_admin.configured:
+        return None
+    try:
+        code = core_client.license_admin.create_handoff(member.core_session_token, target="core")
+    except core_client.CoreError:
+        return None
+    sep = "&" if path_query else ""
+    return f"{config.CORE_WEB_APP_URL}/?handoff={code}{sep}{path_query}"
+
+
 def _ensure_owner(db: Session, *, email: str, name: str, core_customer_id: Optional[int]) -> AccountUser:
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if user is None:

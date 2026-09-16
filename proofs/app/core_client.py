@@ -71,7 +71,17 @@ class LicenseAdminClient:
         return data
 
     def request_signin(self, email: str) -> None:
-        self._post("/api/web/signin/request", {"email": email})
+        # app="proofs": the email's "sign in instantly" link comes back here.
+        self._post("/api/web/signin/request", {"email": email, "app": "proofs"})
+
+    def create_handoff(self, token: str, target: str = "core") -> str:
+        """A one-time code that signs this customer into the other app."""
+        return self._post("/api/web/handoff/create", {"token": token, "target": target})["code"]
+
+    def redeem_handoff(self, code: str, user_agent: str = "") -> tuple[str, CoreSession]:
+        """A code minted by the app -> a fresh web session token + who it is."""
+        s = self._post("/api/web/handoff/redeem", {"code": code, "user_agent": user_agent})
+        return s["token"], CoreSession(customer_id=int(s["customer_id"]), email=s["email"], name=s.get("name") or "", status=s.get("status") or "", entitled=bool(s.get("entitled")))
 
     def verify_signin(self, email: str, code: str) -> str:
         """Returns the web session token."""

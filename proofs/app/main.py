@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -157,8 +158,48 @@ def home(request: Request, m: Optional[AccountUser] = Depends(current_member)):
 
 
 @app.get("/signin", response_class=HTMLResponse)
-def signin_form(request: Request):
+def signin_form(request: Request, email: str = "", code: str = "", db: Session = Depends(get_db), m: Optional[AccountUser] = Depends(current_member)):
+    """The sign-in page. With ?email=&code= (the sign-in email's "sign in
+    instantly" link for a Proofs-initiated sign-in) it verifies straight
+    away instead of asking the code to be typed back in."""
+    if email and code:
+        if m is not None and m.user.email == email.strip().lower():
+            return RedirectResponse("/proofs", status_code=303)
+        try:
+            token, member = auth.verify_code(db, email, code)
+            db.commit()
+            request.session["token"] = token
+            return RedirectResponse("/proofs", status_code=303)
+        except auth.AuthError as e:
+            db.rollback()
+            return templates.TemplateResponse(request, "signin.html", {"step": "code", "email": email.strip().lower(), "error": str(e)})
     return templates.TemplateResponse(request, "signin.html", {"step": "email", "error": request.session.pop("flash_error", None)})
+
+
+@app.get("/signin/handoff")
+def signin_handoff(request: Request, code: str = "", next: str = "", db: Session = Depends(get_db)):
+    """Straight in from PiperStitch, already signed in there."""
+    try:
+        token, member = auth.sign_in_with_handoff(db, code, user_agent=request.headers.get("user-agent", ""))
+        db.commit()
+    except auth.AuthError as e:
+        db.rollback()
+        request.session["flash_error"] = str(e)
+        return RedirectResponse("/signin", status_code=303)
+    request.session["token"] = token
+    target = next if next.startswith("/") and not next.startswith("//") else "/proofs"
+    return RedirectResponse(target, status_code=303)
+
+
+@app.get("/core/open")
+def core_open(request: Request, m: AccountUser = Depends(require_member), db: Session = Depends(get_db)):
+    """Into PiperStitch without signing in again. Any query string
+    (project=, return=) is passed through to the app."""
+    keep = "&".join(f"{k}={quote(v, safe='')}" for k, v in request.query_params.items() if k in ("project", "return"))
+    url = auth.core_handoff_url(m, path_query=keep)
+    if url is None:
+        url = f"{config.CORE_WEB_APP_URL}/" + (f"?{keep}" if keep else "")
+    return RedirectResponse(url, status_code=303)
 
 
 @app.post("/signin", response_class=HTMLResponse)

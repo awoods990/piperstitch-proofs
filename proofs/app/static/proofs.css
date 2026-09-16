@@ -38,6 +38,7 @@ p { margin: 0 0 8px; }
 .topbar .grow { flex: 1; }
 .topbar .who { color: var(--muted); font-size: 12.5px; }
 .topbar form { margin: 0; }
+.topbar .core-btn { margin-right: 8px; white-space: nowrap; }
 
 /* --- buttons --- */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; text-decoration: none; font: inherit; font-size: 13.5px; transition: background .12s, border-color .12s, transform .05s; }

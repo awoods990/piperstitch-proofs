@@ -614,3 +614,41 @@ def test_core_hoops_and_thread_library_prepopulate_and_the_garment_can_change_be
         assert b"Trucker cap" in pdf_text(c.get(f"/proofs/{pid}/versions/{vid}/proof.pdf").content)
     finally:
         core_client.license_admin.preferences = None
+
+
+def test_handoff_signs_in_from_piperstitch_and_back_without_a_second_code(document, outbox):
+    """Arriving from the app with a one-time code creates the same owner
+    account an email code would; /core/open goes back the same way."""
+    from app import core_client
+    la = core_client.license_admin
+    la.sessions["core-tok-1"] = {"customer_id": 4242, "email": "handoff@shop.example", "name": "Hana Doff"}
+    code = la.create_handoff("core-tok-1", target="proofs")
+    c = _client()
+    r = c.get(f"/signin/handoff?code={code}&next=/proofs/new", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/proofs/new"
+    assert "Hana Doff" in c.get("/proofs").text or "handoff@shop.example" in c.get("/proofs").text
+    with database.SessionLocal() as db:
+        m = db.execute(database.select(AccountUser).join(User).where(User.email == "handoff@shop.example")).scalar_one()
+        assert m.role == "owner" and m.core_session_token == "core-tok-1-via-proofs" and m.account.core_customer_id == 4242
+    # Used codes and junk are refused with a message, not a crash.
+    r = c.get(f"/signin/handoff?code={code}", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/signin" and "expired" in c.get("/signin").text
+    # Back into PiperStitch: a fresh handoff carrying the project to open.
+    r = c.get("/core/open?project=abc-123&return=https%3A%2F%2Fproofs.test%2Fproofs%2F1", follow_redirects=False)
+    assert r.status_code == 303
+    loc = r.headers["location"]
+    assert loc.startswith("https://app.piperstitch.com/?handoff=hand-") and "project=abc-123" in loc and "return=https%3A%2F%2Fproofs.test" in loc
+    assert la.last_handoff == ("core-tok-1-via-proofs", "core")
+    # The top bar offers the way back.
+    assert 'href="/core/open"' in c.get("/proofs").text
+    # The sign-in email's link (?email=&code=) verifies without retyping; a wrong code shows the code step.
+    c2 = _client()
+    c2.post("/signin", data={"email": "link@shop.example"})
+    mail = outbox.latest_to("link@shop.example")
+    code6 = re.search(r"code is (\d{6})", mail["text"]).group(1)
+    r = c2.get(f"/signin?email=link%40shop.example&code={code6}", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/proofs"
+    assert c2.get("/proofs").status_code == 200
+    c3 = _client()
+    c3.post("/signin", data={"email": "link2@shop.example"})
+    assert "isn" in c3.get("/signin?email=link2%40shop.example&code=000000").text

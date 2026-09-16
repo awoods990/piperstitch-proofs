@@ -4,6 +4,7 @@
 <a class="brand" href="/proofs"><img src="/static/icon.png" alt="">PiperStitch <small>Proofs</small></a>
 <nav><a href="/proofs" class="{{ 'on' if nav == 'board' else '' }}">Jobs</a>{% if m.role != 'stitcher' %}<a href="/proofs/new" class="{{ 'on' if nav == 'new' else '' }}">New job</a>{% endif %}{% if m.role == 'owner' %}<a href="/settings" class="{{ 'on' if nav == 'settings' else '' }}">Settings</a>{% endif %}</nav>
 <span class="grow"></span>
+<a class="btn primary small core-btn" href="/core/open" title="Open PiperStitch — already signed in">PiperStitch ↗</a>
 <span class="who">{{ m.account.shop_name or m.user.email }} · {{ m.role }}</span>
 <form method="post" action="/signout"><button class="btn ghost small">Sign out</button></form>
 </header>
