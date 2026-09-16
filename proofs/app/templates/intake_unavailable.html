@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block wrapclass %}narrow{% endblock %}
+{% block content %}
+<div class="card" style="margin-top:40px">
+{% if reason == 'thanks' %}<h1>Thank you — we have your artwork</h1><p>{{ account.shop_name or 'The shop' }} will look it over and send you a stitch proof to approve. You'll get an email when it's ready.</p>
+{% elif reason == 'done' %}<h1>Artwork already received</h1><p>We already have your files for this job. If you need to send something else, contact the shop.</p>
+{% elif reason == 'void' %}<h1>This job was cancelled</h1>
+{% elif reason == 'expired' %}<h1>This link has expired</h1><p>Ask the shop to send a fresh one.</p>
+{% else %}<h1>This link isn't valid</h1><p>Check the link in your email, or ask the shop to resend it.</p>{% endif %}
+</div>
+{% endblock %}

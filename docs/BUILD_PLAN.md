@@ -29,6 +29,23 @@ triage, version compare view, colorways, SMS, reminders, sew-out log,
 estimator, thread inventory, internal review, Stripe checkout for the add-on
 (Phase 1 ships the three free proofs).
 
-## Phase 2 · Intake and iteration — next
+## Phase 2 · Intake and iteration — in progress (16 Sep 2026)
+
+| PRD acceptance criterion | Status |
+|---|---|
+| Customer uploads a 12 MP phone photo of a business card; triage reports effective PPI at the requested size, detects the white background, counts colours, flags fine detail with a mm measurement | ✅ (`triage.analyze`; the "text under 5 mm" check is a measured narrowest-stroke check — glyph-level text detection is not yet done) |
+| Forwarding a customer email creates a proof with attachments extracted | ⏳ email ingest not built |
+| DKIM-failing / unknown senders rejected or quarantined | ⏳ with email ingest |
+| A blocker prevents composition until resolved or overridden; the override appears on the proof and in the event chain | ✅ |
+| Change requests land as a checklist with pins; Core overlays the pins | ✅ checklist with normalized pins (Core overlay is a later Core hook) |
+| Version compare renders v1 against v2 with a difference view on a phone | ◐ side-by-side on the proof page; slider/difference views not yet |
+| Both reminder cadences fire on schedule, respect quiet hours, suppress correctly, cancel on customer action | ⏳ chase engine not built |
+| Internal reviewer can fail a proof back with a note | ⏳ |
+| A hard bounce raises an in-app banner within 60 s | ⏳ (bounces are recorded as events; no banner) |
+
+Also in: intake links with the default question set (answers land as data, SMS
+consent evidence on the contact), shop direct upload, single-use intake
+tokens with expiry sweep, the shareable read-only Readiness Report link.
+AV scanning is recorded as `skipped` until a clamd sidecar is deployed.
 ## Phase 3 · The shop's daily tools
 ## Phase 4 · Polish and scale

@@ -80,7 +80,7 @@ def rollup_status(db: Session, proof: Proof) -> str:
     or its current version's status. Derived, never hand-set."""
     if proof.status in ("void", "completed", "released"):
         return proof.status
-    if proof.status in ("awaiting_art", "intake_expired", "art_received", "internal_review"):
+    if proof.status in ("awaiting_art", "intake_expired", "art_received", "internal_review") and not proof.current_version_id:
         return proof.status
     if proof.current_version_id:
         v = db.get(ProofVersion, proof.current_version_id)

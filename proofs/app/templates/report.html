@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Art Readiness Report — {{ p.reference }}{% endblock %}
+{% block wrapclass %}narrow{% endblock %}
+{% block header %}<header class="top" style="border-top:4px solid {{ account.brand_color }}"><div class="wrap"><span class="brand">{{ account.shop_name or 'Your embroiderer' }}</span><span class="spacer"></span><span class="stamp">{{ p.reference }}</span></div></header>{% endblock %}
+{% block content %}
+<h1>What we found in your artwork</h1>
+<p class="stamp">{{ p.title }}. Embroidery has rules a screen doesn't: thread has a width, detail has a floor, colours are stops. Here's how your file measures up.</p>
+{% for r in reports %}
+<div class="card">
+{% if r.shop_message %}<p><b>From {{ account.shop_name or 'the shop' }}:</b> {{ r.shop_message }}</p>{% endif %}
+<h2>{{ r.file.original_filename }}</h2>
+{% if r.preview_storage_key %}<div class="render" style="max-width:320px"><img src="/r/{{ token }}/files/{{ r.file_id }}/preview.png" alt=""></div>{% endif %}
+<table class="specs">
+<tr><td>Type</td><td>{{ 'Vector artwork' if r.is_vector else ('Picture (raster)' if r.kind == 'raster' else r.kind) }}</td></tr>
+{% if r.effective_ppi %}<tr><td>Resolution at {{ '%.1f'|format(r.requested_width_mm / 25.4) }} in</td><td>{{ '%.0f'|format(r.effective_ppi) }} PPI</td></tr>{% endif %}
+{% if r.color_count %}<tr><td>Colours</td><td>{{ r.color_count }}</td></tr>{% endif %}
+{% if r.min_feature_mm %}<tr><td>Finest detail</td><td>about {{ '%.1f'|format(r.min_feature_mm) }} mm</td></tr>{% endif %}
+</table>
+<ul style="list-style:none;padding:0;margin:10px 0 0">
+{% for f in r.findings %}<li style="padding:8px 0;border-top:1px solid var(--line)"><span class="badge {% if f.severity == 'blocker' %}bad{% elif f.severity == 'warning' %}warn{% endif %}">{{ f.severity }}</span> <b>{{ f.title }}</b><br><span style="font-size:14px">{{ f.message }}</span>{% if f.suggested_fix %}<br><span class="stamp">What helps: {{ f.suggested_fix }}</span>{% endif %}</li>{% endfor %}
+</ul>
+</div>
+{% endfor %}
+<p class="stamp">Questions? Contact {{ account.shop_name or 'the shop' }}{% if account.reply_to_email %} at {{ account.reply_to_email }}{% endif %}.</p>
+{% endblock %}

@@ -8,6 +8,10 @@
 <p class="stamp">Version {{ v.version_number }} of {{ version_count }} · created {{ v.composed_at[:10] }}{% if v.version_number > 1 %} · supersedes v{{ v.version_number - 1 }}{% endif %}{% if v.status == 'superseded' %} · <span class="badge warn">superseded</span>{% endif %}
 {% if read_only %} · <a href="/p/{{ token }}">back to the current version</a>{% endif %}</p>
 {% if v.change_summary and not read_only %}<p class="stamp">What changed since the last version: {{ v.change_summary }}</p>{% endif %}
+{% if p.triage_override_reason %}<div class="honesty">A note from the shop about your artwork: {{ p.triage_override_reason }}</div>{% endif %}
+{% if v.version_number > 1 and not read_only %}
+<div class="card"><h3>Before and after</h3><div class="row"><div><div class="render"><img src="/p/{{ token }}/versions/{{ v.version_number - 1 }}/render.png" alt="Version {{ v.version_number - 1 }}"></div><p class="stamp" style="text-align:center">Version {{ v.version_number - 1 }}</p></div><div><div class="render"><img src="/p/{{ token }}/render.png" alt="Version {{ v.version_number }}"></div><p class="stamp" style="text-align:center">Version {{ v.version_number }} (this one)</p></div></div></div>
+{% endif %}
 
 {% if v.status in ('approved','approved_with_notes') and approval %}
 <div class="flash">Approved by {{ approval.signer_name_typed }} on {{ approval.approved_at[:10] }}. Thank you — {{ account.shop_name or 'the shop' }} is clear to sew.</div>

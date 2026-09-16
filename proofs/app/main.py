@@ -21,8 +21,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, core_client, db as database, events, garments, pdfgen, proofs, storage, stitch, texts, tokens
-from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, Message, Proof, ProofVersion, TermsVersion, User
+from . import auth, config, core_client, db as database, events, garments, intake, pdfgen, proofs, storage, stitch, texts, tokens
+from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, File, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
 
@@ -43,10 +43,10 @@ async def _scheduler():
     while True:
         try:
             with database.SessionLocal() as db:
-                n = proofs.expire_due(db)
+                n = proofs.expire_due(db) + intake.expire_intakes(db)
                 db.commit()
                 if n:
-                    log.info("Expired %d proof version(s)", n)
+                    log.info("Expired %d proof version(s)/intake(s)", n)
         except Exception as e:  # noqa: BLE001
             log.exception("scheduler: %s", e)
         await asyncio.sleep(600)
@@ -224,8 +224,11 @@ def _proof_context(db: Session, m: AccountUser, p: Proof) -> dict:
     approval = db.execute(select(ApprovalRecord).where(ApprovalRecord.proof_version_id == current.id)).scalar_one_or_none() if current else None
     chain = events.chain(db, p.id)
     chain_ok, chain_msg = events.verify_chain(db, p.id)
+    reports = list(db.execute(select(TriageReport).where(TriageReport.proof_id == p.id).order_by(TriageReport.generated_at)).scalars())
+    answers = list(db.execute(select(IntakeAnswer).where(IntakeAnswer.proof_id == p.id).order_by(IntakeAnswer.submitted_at)).scalars())
     return {"m": m, "p": p, "versions": versions, "current": current, "changes": changes, "messages": messages, "approval": approval,
-            "chain": chain, "chain_ok": chain_ok, "chain_msg": chain_msg, "can": lambda a: auth.can(m.role, a), "ent": proofs.entitlements(db, m.account)}
+            "chain": chain, "chain_ok": chain_ok, "chain_msg": chain_msg, "can": lambda a: auth.can(m.role, a), "ent": proofs.entitlements(db, m.account),
+            "reports": reports, "blockers": intake.open_blockers(db, p), "answers": answers, "questions": dict((q[0], q[1]) for q in intake.QUESTIONS)}
 
 
 @app.get("/proofs/{proof_id}", response_class=HTMLResponse)
@@ -274,6 +277,9 @@ async def compose(request: Request, proof_id: str, m: AccountUser = Depends(requ
     if document is None:
         request.session["flash_error"] = "Choose a saved project or upload a .stitchpilot file."
         return RedirectResponse(f"/proofs/{p.id}/compose", status_code=303)
+    if intake.open_blockers(db, p):
+        request.session["flash_error"] = "The Readiness Report has unresolved blockers. Resolve or override them on the proof page before composing."
+        return RedirectResponse(f"/proofs/{p.id}", status_code=303)
     try:
         v = proofs.compose_version(
             db, p, m.user, document=document, garment_style_name=str(form.get("garment_style_name", "")), garment_color=str(form.get("garment_color", "")),
@@ -365,6 +371,66 @@ def approve_on_behalf(request: Request, proof_id: str, signer_name: str = Form("
                                                        user_agent=ua, method="on_behalf", on_behalf_channel=channel, on_behalf_evidence=evidence,
                                                        recorded_by=m.user, base_url=_base_url(request)),
                    "Approval recorded on the customer's behalf; certificate written.", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/intake/send")
+def send_intake(request: Request, proof_id: str, message: str = Form(""), m: AccountUser = Depends(require_can("send")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    return _action(request, db, lambda: intake.send_intake(db, p, m.user, base_url=_base_url(request), message=message), "Intake link sent: {result}", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/intake/upload")
+async def shop_upload(request: Request, proof_id: str, m: AccountUser = Depends(require_can("compose")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    form = await request.form()
+    uploads = []
+    for u in form.getlist("files"):
+        if getattr(u, "filename", ""):
+            uploads.append((u.filename, await u.read()))
+    width_mm = _mm(form.get("requested_width"), form.get("width_units")) or p.requested_width_mm
+    is_cap = str(form.get("is_cap", "")) == "yes"
+    return _action(request, db, lambda: intake.attach_files(db, p, m.user, uploads=uploads, requested_width_mm=width_mm, is_cap=is_cap),
+                   "Artwork added and triaged.", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/triage/override")
+def triage_override(request: Request, proof_id: str, reason: str = Form(""), m: AccountUser = Depends(require_can("compose")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    return _action(request, db, lambda: intake.override_blockers(db, p, m.user, reason=reason), "{result} blocker(s) overridden; it's on the record.", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/triage/{finding_id}/resolve")
+def triage_resolve(request: Request, proof_id: str, finding_id: str, m: AccountUser = Depends(require_can("compose")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    fd = db.get(TriageFinding, finding_id)
+    if fd is None or db.get(TriageReport, fd.triage_report_id).proof_id != p.id:
+        raise HTTPException(404)
+    return _action(request, db, lambda: intake.resolve_finding(db, fd, m.user), "Marked resolved.", f"/proofs/{p.id}")
+
+
+@app.post("/proofs/{proof_id}/triage/share")
+def triage_share(request: Request, proof_id: str, message: str = Form(""), m: AccountUser = Depends(require_can("send")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    return _action(request, db, lambda: intake.share_report(db, p, m.user, message=message, base_url=_base_url(request)), "Report sent: {result}", f"/proofs/{p.id}")
+
+
+@app.get("/proofs/{proof_id}/files/{file_id}")
+def shop_file(proof_id: str, file_id: str, preview: int = 0, m: AccountUser = Depends(require_member), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    f = db.get(File, file_id)
+    if f is None or f.proof_id != p.id:
+        raise HTTPException(404)
+    return _serve_file(db, f, preview=bool(preview))
+
+
+def _serve_file(db: Session, f: File, *, preview: bool) -> Response:
+    if preview:
+        r = db.execute(select(TriageReport).where(TriageReport.file_id == f.id)).scalars().first()
+        if r and r.preview_storage_key and storage.exists(r.preview_storage_key):
+            return Response(content=storage.get(r.preview_storage_key), media_type="image/png")
+        raise HTTPException(404)
+    return Response(content=storage.get(f.storage_key), media_type=f.mime_type or "application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{f.original_filename}"'})
 
 
 @app.get("/proofs/{proof_id}/versions/{version_id}/{artifact}")
@@ -604,6 +670,74 @@ def public_version_artifact(plaintext: str, n: int, artifact: str, db: Session =
     if old is None:
         raise HTTPException(404)
     return _serve_artifact(p, old, artifact)
+
+
+# --- public intake and readiness report ----------------------------------------------------------
+
+@app.get("/i/{plaintext}", response_class=HTMLResponse)
+def intake_form(request: Request, plaintext: str, db: Session = Depends(get_db)):
+    state = tokens.resolve(db, plaintext, purpose="intake")
+    p = db.get(Proof, state.token.proof_id) if state.token else None
+    if not state.ok or p is None or p.status != "awaiting_art":
+        reason = "done" if (p is not None and p.status not in ("awaiting_art", "void")) else ("void" if p is not None and p.status == "void" else state.reason)
+        db.commit()
+        return templates.TemplateResponse(request, "intake_unavailable.html", {"reason": reason, "p": p})
+    account = db.get(Account, p.account_id)
+    contact = db.get(Contact, p.contact_id)
+    if not any(e.event_type == "intake_opened" for e in events.chain(db, p.id)):
+        ip, ua = _client(request)
+        events.append(db, proof_id=p.id, event_type="intake_opened", actor_type="contact", actor_id=contact.id, token_hash=state.token.token_hash, ip=ip, user_agent=ua)
+    db.commit()
+    return templates.TemplateResponse(request, "intake.html", {"p": p, "account": account, "contact": contact, "token": plaintext, "questions": intake.QUESTIONS,
+                                                                "accepted": ", ".join(intake.ACCEPTED_EXTENSIONS), "error": request.session.pop("flash_error", None)})
+
+
+@app.post("/i/{plaintext}")
+async def intake_submit(request: Request, plaintext: str, db: Session = Depends(get_db)):
+    state = tokens.resolve(db, plaintext, purpose="intake")
+    p = db.get(Proof, state.token.proof_id) if state.token else None
+    if not state.ok or p is None or p.status != "awaiting_art":
+        raise HTTPException(404)
+    form = await request.form()
+    uploads = []
+    for u in form.getlist("files"):
+        if getattr(u, "filename", ""):
+            uploads.append((u.filename, await u.read()))
+    answers = {q[0]: str(form.get(q[0], "")) for q in intake.QUESTIONS}
+    ip, ua = _client(request)
+    try:
+        intake.receive_intake(db, p, token_hash=state.token.token_hash, uploads=uploads, answers=answers, ip=ip, user_agent=ua,
+                              sms_consent=str(form.get("sms_consent", "")) == "yes", phone=str(form.get("phone", "")))
+        db.commit()
+    except proofs.TransitionError as e:
+        db.rollback()
+        request.session["flash_error"] = str(e)
+        return RedirectResponse(f"/i/{plaintext}", status_code=303)
+    account = db.get(Account, p.account_id)
+    return templates.TemplateResponse(request, "intake_unavailable.html", {"reason": "thanks", "p": p, "account": account})
+
+
+@app.get("/r/{plaintext}", response_class=HTMLResponse)
+def public_report(request: Request, plaintext: str, db: Session = Depends(get_db)):
+    state = tokens.resolve(db, plaintext, purpose="triage_report")
+    if state.token is None:
+        raise HTTPException(404)
+    p = db.get(Proof, state.token.proof_id)
+    account = db.get(Account, p.account_id)
+    reports = list(db.execute(select(TriageReport).where(TriageReport.proof_id == p.id).order_by(TriageReport.generated_at)).scalars())
+    db.commit()
+    return templates.TemplateResponse(request, "report.html", {"p": p, "account": account, "reports": reports, "token": plaintext, "public": True})
+
+
+@app.get("/r/{plaintext}/files/{file_id}/preview.png")
+def public_report_preview(plaintext: str, file_id: str, db: Session = Depends(get_db)):
+    state = tokens.resolve(db, plaintext, purpose="triage_report")
+    if state.token is None:
+        raise HTTPException(404)
+    f = db.get(File, file_id)
+    if f is None or f.proof_id != state.token.proof_id:
+        raise HTTPException(404)
+    return _serve_file(db, f, preview=True)
 
 
 # --- certificates and verification -----------------------------------------------------------

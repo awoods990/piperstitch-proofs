@@ -176,6 +176,9 @@ class Proof(Base):
     core_project_name: Mapped[str] = mapped_column(String, default="")
     due_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     intake_window_days: Mapped[int] = mapped_column(Integer, default=7)
+    intake_expires_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    requested_width_mm: Mapped[float] = mapped_column(Float, default=0)
+    triage_override_reason: Mapped[str] = mapped_column(Text, default="")
     response_window_days: Mapped[int] = mapped_column(Integer, default=config.DEFAULT_RESPONSE_WINDOW_DAYS)
     revisions_included: Mapped[int] = mapped_column(Integer, default=2)
     reminders_snoozed_until: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -276,6 +279,78 @@ class TermsVersion(Base):
     consent_text: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[str] = mapped_column(String, default=utcnow)
     is_current: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# --- intake and triage --------------------------------------------------------------
+
+class File(Base):
+    """Every uploaded or generated binary (PRD `file`)."""
+    __tablename__ = "file"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    account_id: Mapped[str] = mapped_column(ForeignKey("account.id"), index=True)
+    proof_id: Mapped[Optional[str]] = mapped_column(ForeignKey("proof.id"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String, default="artwork")   # artwork | sew_out_photo | change_attachment | message_attachment | garment_photo | certificate
+    source: Mapped[str] = mapped_column(String, default="upload")  # intake | email | upload | mms | generated
+    original_filename: Mapped[str] = mapped_column(String, default="")
+    mime_type: Mapped[str] = mapped_column(String, default="")
+    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    storage_key: Mapped[str] = mapped_column(String, default="")
+    sha256: Mapped[str] = mapped_column(String, default="")
+    scan_status: Mapped[str] = mapped_column(String, default="skipped")  # pending | clean | infected | skipped
+    scan_result: Mapped[str] = mapped_column(String, default="")
+    uploaded_at: Mapped[str] = mapped_column(String, default=utcnow)
+    uploaded_by_contact: Mapped[bool] = mapped_column(Boolean, default=False)
+    uploaded_by_user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+class TriageReport(Base):
+    __tablename__ = "triage_report"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    file_id: Mapped[str] = mapped_column(ForeignKey("file.id"), index=True)
+    proof_id: Mapped[str] = mapped_column(ForeignKey("proof.id"), index=True)
+    kind: Mapped[str] = mapped_column(String, default="")
+    effective_ppi: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_vector: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_transparency: Mapped[bool] = mapped_column(Boolean, default=False)
+    color_count: Mapped[int] = mapped_column(Integer, default=0)
+    colorspace: Mapped[str] = mapped_column(String, default="")
+    min_feature_mm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    requested_width_mm: Mapped[float] = mapped_column(Float, default=0)
+    report_json: Mapped[str] = mapped_column(Text, default="{}")
+    preview_storage_key: Mapped[str] = mapped_column(String, default="")
+    generated_at: Mapped[str] = mapped_column(String, default=utcnow)
+    shop_message: Mapped[str] = mapped_column(Text, default="")
+
+    findings: Mapped[list["TriageFinding"]] = relationship(back_populates="report", order_by="TriageFinding.id")
+    file: Mapped[File] = relationship()
+
+
+class TriageFinding(Base):
+    __tablename__ = "triage_finding"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    triage_report_id: Mapped[str] = mapped_column(ForeignKey("triage_report.id"), index=True)
+    code: Mapped[str] = mapped_column(String)
+    severity: Mapped[str] = mapped_column(String)   # blocker | warning | note
+    title: Mapped[str] = mapped_column(String, default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    measurement_json: Mapped[str] = mapped_column(Text, default="{}")
+    suggested_fix: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String, default="open")   # open | resolved | overridden
+    overridden_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    overridden_reason: Mapped[str] = mapped_column(Text, default="")
+    overridden_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    report: Mapped[TriageReport] = relationship(back_populates="findings")
+
+
+class IntakeAnswer(Base):
+    """What the customer told us on the intake form, as data."""
+    __tablename__ = "intake_answer"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    proof_id: Mapped[str] = mapped_column(ForeignKey("proof.id"), index=True)
+    field: Mapped[str] = mapped_column(String)
+    value: Mapped[str] = mapped_column(Text, default="")
+    submitted_at: Mapped[str] = mapped_column(String, default=utcnow)
 
 
 # --- approval and evidence ---------------------------------------------------------
