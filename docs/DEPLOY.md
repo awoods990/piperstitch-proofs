@@ -52,9 +52,10 @@ defaults to on, so owners sign in with their PiperStitch email code.
 
 ## 4. Core-side prerequisite (already in Core's repo, deploy it)
 
-`POST /api/v1/internal/export/{format}` on the app server — Core commit
-`15ffe65`. Redeploy the app service so the route is live. No other Core
-change is needed.
+`POST /api/v1/internal/export/{format}` (Core commit `15ffe65`) and
+`POST /api/v1/internal/build-from-artwork` (Core commit `b511eee`) on the app
+server. Redeploy the app service so both routes are live. No other Core change
+is needed.
 
 ## 5. Stripe
 

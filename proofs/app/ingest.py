@@ -198,6 +198,12 @@ def _accept(db: Session, row: InboundEmail, account: Account, contact: Contact, 
             events.append(db, proof_id=p.id, event_type="art_uploaded", actor_type="contact" if user is None else "user", actor_id=contact.id if user is None else user.id,
                           payload={"file_id": f.id, "filename": name, "bytes": len(data), "sha256": f.sha256, "via": "email"})
             intake.run_triage(db, p, f, requested_width_mm=0)
+        first = json.loads(row.attachments_json or "[]")
+        if first and not p.core_project_id:
+            from .db import File as _File
+            f0 = db.execute(select(_File).where(_File.proof_id == p.id).order_by(_File.uploaded_at)).scalars().first()
+            if f0 is not None:
+                intake.digitize_into_core(db, p, f0)
         p.status = "art_received"
     row.status, row.proof_id, row.decided_at = "accepted", p.id, utcnow()
     row.decided_by = user.id if user else None

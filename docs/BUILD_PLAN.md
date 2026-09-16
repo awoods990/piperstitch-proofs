@@ -50,6 +50,11 @@ new sends only.
 | Internal reviewer can fail a proof back with a note; can't review own version | ✅ |
 | A hard bounce raises an in-app banner within 60 s | ✅ via the Postmark bounce webhook (`/webhooks/postmark/bounce?token=`) → board banner + shop email |
 
+Artwork flows back into PiperStitch: on arrival (intake link, email, MMS,
+shop upload) a first-pass project is digitized through Core and saved in the
+owner's PiperStitch account, named after the proof and linked to it; the
+shop refines it in PiperStitch or composes straight from it.
+
 Also in: intake links with the default question set (answers land as data, SMS
 consent evidence on the contact), shop direct upload, single-use intake
 tokens with expiry sweep, the shareable read-only Readiness Report link.

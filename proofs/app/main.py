@@ -59,7 +59,7 @@ _here = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
 templates = Jinja2Templates(directory=str(_here / "templates"))
 templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
-                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured()})
+                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL})
 
 
 def _fmt_dt(value: str) -> str:

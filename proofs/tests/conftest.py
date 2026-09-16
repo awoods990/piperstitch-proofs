@@ -62,6 +62,12 @@ class FakeStitchClient:
             d["stats"]["stitchCount"] -= 200
         return d
 
+    def build_from_artwork(self, data, filename, *, name, width_mm, height_mm=None, fabric_type="standard", max_colors=None):
+        self.built = getattr(self, "built", []) + [(filename, name, width_mm, fabric_type)]
+        doc = json.loads((FIXTURES / "cap_document.json").read_text())
+        doc["name"] = name
+        return doc
+
     def export(self, document, fmt):
         data = self.files[fmt]
         if "v2" in (document.get("name") or ""):
@@ -69,10 +75,38 @@ class FakeStitchClient:
         return data
 
 
+class FakeLicenseAdmin:
+    """Stands in for License Admin's projects API: `configured` so the
+    auto-digitize path runs; projects saved in memory."""
+    configured = True
+    base_url = "http://license-admin.test"
+    api_key = "test"
+
+    def __init__(self):
+        self.projects: dict[str, dict] = {}
+
+    def save_project(self, token, project_id, name, document):
+        self.projects[project_id] = {"id": project_id, "name": name, "document": document, "widthMM": document.get("physicalWidthMM", 0), "heightMM": document.get("physicalHeightMM", 0)}
+        return {"saved": True}
+
+    def list_projects(self, token):
+        return [{k: v for k, v in p.items() if k != "document"} for p in self.projects.values()]
+
+    def get_project(self, token, project_id):
+        return self.projects[project_id]
+
+    def request_signin(self, email):
+        raise AssertionError("tests use Proofs codes")
+
+    def verify_signin(self, email, code):
+        raise AssertionError("tests use Proofs codes")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _init():
     database.init_db()
     core_client.stitch = FakeStitchClient()
+    core_client.license_admin = FakeLicenseAdmin()
     yield
 
 

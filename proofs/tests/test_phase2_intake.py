@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from PIL import Image, ImageDraw
 
 from app import db as database, events, intake, triage
@@ -157,3 +158,47 @@ def test_shop_direct_upload_triages_and_intake_expiry_sweep(outbox):
         db.commit()
         assert db.get(Proof, pid2).status == "intake_expired"
     assert "expired" in shop.get(f"/proofs/{pid2}").text
+
+
+def test_artwork_flows_back_into_piperstitch_as_a_linked_project(document, outbox):
+    """The customer's file is digitized through Core and saved in the
+    owner's PiperStitch account the moment it arrives; compose then uses
+    that project without an upload."""
+    from app import core_client
+    from app.db import AccountUser, User
+    shop = TestClient(app)
+    sign_in(shop, "dana-flow@shop.example", outbox)
+    with database.SessionLocal() as db:
+        m = db.execute(select(AccountUser).join(User).where(User.email == "dana-flow@shop.example")).scalar_one()
+        m.core_session_token = "owner-token"    # what a License Admin sign-in leaves behind
+        db.commit()
+    r = shop.post("/proofs/new", data={"title": "Van logo — 12 polos", "contact_name": "Marcus", "contact_email": "flow@example.com"}, follow_redirects=False)
+    pid = r.headers["location"].rsplit("/", 1)[1]
+    shop.post(f"/proofs/{pid}/intake/send", follow_redirects=False)
+    url = re.search(r"(http://testserver/i/[A-Za-z0-9_\-]+)", outbox.latest_to("flow@example.com")["text"]).group(1)
+    TestClient(app).post(url, data={"garment_style_name": "navy polos", "width_in": "3.5", "quantity": "12"}, files=[("files", ("card.jpg", business_card_photo(2000, 1500), "image/jpeg"))])
+    with database.SessionLocal() as db:
+        p = db.get(Proof, pid)
+        assert p.core_project_id and p.core_project_name.startswith(p.reference), "linked to a project named after the proof"
+        saved = core_client.license_admin.projects[p.core_project_id]
+        assert saved["name"] == p.core_project_name and saved["document"]["name"] == p.core_project_name
+        built = core_client.stitch.built[-1]
+        assert built[0] == "card.jpg" and abs(built[2] - 88.9) < 0.1 and built[3] == "knit", built
+        types = [e.event_type for e in events.chain(db, pid)]
+        assert "project_linked" in types and types.index("triage_completed") < types.index("project_linked")
+    detail = shop.get(f"/proofs/{pid}").text
+    assert "Digitized in PiperStitch" in detail and "Open PiperStitch" in detail
+    # Compose needs no upload now: the linked project is fetched from License Admin.
+    r = shop.post(f"/proofs/{pid}/compose", data={"quantity": "12", "garment_template_id": "polo", "garment_zone": "left_chest", "garment_color": "Navy"}, follow_redirects=False)
+    assert r.headers["location"] == f"/proofs/{pid}"
+    with database.SessionLocal() as db:
+        p = db.get(Proof, pid)
+        assert p.current_version_id and p.status == "ready_to_send"
+    # A machine file or PDF is not auto-digitized; the proof is still usable.
+    r = shop.post("/proofs/new", data={"title": "Has a DST", "contact_name": "Q", "contact_email": "dst@example.com"}, follow_redirects=False)
+    pid2 = r.headers["location"].rsplit("/", 1)[1]
+    shop.post(f"/proofs/{pid2}/intake/upload", data={"requested_width": "3", "width_units": "in", "is_cap": "no"},
+              files=[("files", ("logo.dst", Path(__file__).parent.joinpath("fixtures/cap.dst").read_bytes(), "application/octet-stream"))], follow_redirects=False)
+    with database.SessionLocal() as db:
+        p2 = db.get(Proof, pid2)
+        assert p2.core_project_id is None and any(e.event_type == "auto_digitize_skipped" for e in events.chain(db, pid2))

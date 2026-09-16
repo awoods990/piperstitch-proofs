@@ -17,6 +17,10 @@
 </div>
 {% endif %}
 
+{% if p.core_project_id and not current %}
+<div class="card"><h2>Digitized in PiperStitch</h2><p>This artwork was digitized as the PiperStitch project <b>{{ p.core_project_name or p.core_project_id }}</b> in your account. Open it in PiperStitch to check the stitches and tweak anything, save, then compose the proof from it.</p>
+<p><a class="btn secondary" href="{{ CORE_WEB_APP_URL }}" target="_blank">Open PiperStitch</a> {% if can('compose') and not blockers %}<a class="btn" href="/proofs/{{ p.id }}/compose">Compose version 1</a>{% endif %}</p></div>
+{% endif %}
 {% if not current %}
 <div class="card">
 {% if p.status == 'awaiting_art' %}<p>Waiting for the customer's artwork (intake link sent{% if p.intake_expires_at %}, valid until {{ p.intake_expires_at[:10] }}{% endif %}).</p>

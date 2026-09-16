@@ -126,11 +126,15 @@ def receive_intake(db: Session, proof: Proof, *, token_hash: str, uploads: list[
         contact.sms_opt_in_text = "I agree to receive text messages about this order from the shop. Message and data rates may apply. Reply STOP to opt out."
     reports = []
     is_cap = "cap" in (answers.get("garment_style_name") or "").lower() or "hat" in (answers.get("garment_style_name") or "").lower()
+    first_file = None
     for name, data in kept:
         f = store_file(db, proof, data=data, filename=name, by_contact=True)
+        first_file = first_file or f
         events.append(db, proof_id=proof.id, event_type="art_uploaded", actor_type="contact", actor_id=contact.id, token_hash=token_hash, ip=ip, user_agent=user_agent,
                       payload={"file_id": f.id, "filename": name, "bytes": len(data), "sha256": f.sha256})
         reports.append(run_triage(db, proof, f, requested_width_mm=proof.requested_width_mm, is_cap=is_cap))
+    if first_file is not None and not proof.core_project_id:
+        digitize_into_core(db, proof, first_file, garment_text=answers.get("garment_style_name") or "")
     proof.status = "art_received"
     proof.updated_at = utcnow()
     tokens.revoke_for_proof(db, proof.id, purposes=("intake",))
@@ -144,18 +148,71 @@ def receive_intake(db: Session, proof: Proof, *, token_hash: str, uploads: list[
 def attach_files(db: Session, proof: Proof, user: User, *, uploads: list[tuple[str, bytes]], requested_width_mm: float, is_cap: bool = False) -> list[TriageReport]:
     """The shop uploads on the customer's behalf (direct upload)."""
     reports = []
+    first_file = None
     for name, data in uploads:
         if not data:
             continue
         f = store_file(db, proof, data=data, filename=name, source="upload", by_contact=False, user=user)
+        first_file = first_file or f
         events.append(db, proof_id=proof.id, event_type="art_uploaded", actor_type="user", actor_id=user.id, payload={"file_id": f.id, "filename": name, "bytes": len(data), "sha256": f.sha256})
         if requested_width_mm:
             proof.requested_width_mm = requested_width_mm
         reports.append(run_triage(db, proof, f, requested_width_mm=proof.requested_width_mm, is_cap=is_cap))
+    if first_file is not None and not proof.core_project_id:
+        digitize_into_core(db, proof, first_file, garment_text="cap" if is_cap else "")
     if reports and proof.status in ("draft", "awaiting_art", "intake_expired"):
         proof.status = "art_received"
     proof.updated_at = utcnow()
     return reports
+
+
+FABRIC_GUESS = (("cap", "structuredCap"), ("hat", "structuredCap"), ("beanie", "beanie"), ("towel", "terry"), ("fleece", "terry"),
+                ("hoodie", "knit"), ("sweatshirt", "knit"), ("polo", "knit"), ("t-shirt", "knit"), ("tee", "knit"), ("shirt", "stableWoven"),
+                ("jacket", "stableWoven"), ("bag", "stableWoven"), ("apron", "stableWoven"))
+
+
+def guess_fabric(garment_text: str) -> str:
+    t = (garment_text or "").lower()
+    for needle, fabric in FABRIC_GUESS:
+        if needle in t:
+            return fabric
+    return "standard"
+
+
+def digitize_into_core(db: Session, proof: Proof, f: File, *, garment_text: str = "", stitch_client=None) -> Optional[str]:
+    """The artwork flows back into PiperStitch: a first-pass digitized
+    project is built through Core and saved in the shop owner's own
+    PiperStitch account, then linked to the proof. Returns the project
+    id, or None (with the reason recorded) when it couldn't be done --
+    a customer's photo of a card may not trace; the shop then digitizes
+    by hand as before. Never raises: intake must succeed regardless."""
+    from . import core_client
+    from .db import AccountUser
+    account = db.get(Account, proof.account_id)
+    owner = db.execute(select(AccountUser).where(AccountUser.account_id == account.id, AccountUser.role == "owner", AccountUser.core_session_token.isnot(None),
+                                                 AccountUser.disabled_at.is_(None))).scalars().first()
+    if owner is None or not core_client.license_admin.configured:
+        events.append(db, proof_id=proof.id, event_type="auto_digitize_skipped", actor_type="system", payload={"reason": "no PiperStitch session for the owner"})
+        return None
+    if f.mime_type.startswith("application/x-embroidery") or f.mime_type in ("application/pdf", "image/heic", "image/vnd.adobe.photoshop", "application/illustrator", "application/postscript"):
+        events.append(db, proof_id=proof.id, event_type="auto_digitize_skipped", actor_type="system", payload={"reason": f"not auto-digitized: {f.mime_type}"})
+        return None
+    width_mm = proof.requested_width_mm or 88.9
+    name = f"{proof.reference} · {proof.title}"[:120]
+    client = stitch_client or core_client.stitch
+    try:
+        document = client.build_from_artwork(storage.get(f.storage_key), f.original_filename, name=name, width_mm=width_mm, fabric_type=guess_fabric(garment_text))
+        import uuid
+        project_id = str(uuid.uuid4())
+        core_client.license_admin.save_project(owner.core_session_token, project_id, name, document)
+    except core_client.CoreError as e:
+        events.append(db, proof_id=proof.id, event_type="auto_digitize_failed", actor_type="system", payload={"reason": str(e)[:300]})
+        return None
+    proof.core_project_id = project_id
+    proof.core_project_name = name
+    events.append(db, proof_id=proof.id, event_type="project_linked", actor_type="system",
+                  payload={"core_project_id": project_id, "core_project_name": name, "auto": True, "width_mm": width_mm, "objects": len(document.get("objects") or [])})
+    return project_id
 
 
 def open_blockers(db: Session, proof: Proof) -> list[TriageFinding]:

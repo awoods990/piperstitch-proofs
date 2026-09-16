@@ -46,6 +46,7 @@ LICENSE_ADMIN_URL = os.environ.get("LICENSE_ADMIN_URL", "").rstrip("/")
 WEB_API_KEY = os.environ.get("WEB_API_KEY", "")          # License Admin's shared web-API key
 CORE_SERVER_URL = os.environ.get("CORE_SERVER_URL", "http://127.0.0.1:8089").rstrip("/")
 CORE_API_KEY = os.environ.get("CORE_API_KEY", "")        # the Vapor server's X-API-Key (its WEB_API_KEY)
+CORE_WEB_APP_URL = os.environ.get("CORE_WEB_APP_URL", "https://app.piperstitch.com").rstrip("/")   # where "Open PiperStitch" points
 
 # --- email ------------------------------------------------------------------
 SMTP_HOST = os.environ.get("SMTP_HOST", "")

@@ -162,6 +162,11 @@ def inbound(db: Session, form: dict, *, fetch_media=None) -> str:
             stored += 1
         if stored:
             p.status = "art_received"
+            if not p.core_project_id:
+                from .db import File as _File
+                f0 = db.execute(select(_File).where(_File.proof_id == p.id).order_by(_File.uploaded_at)).scalars().first()
+                if f0 is not None:
+                    intake.digitize_into_core(db, p, f0)
             proofs._refresh(db, p)
             if body:
                 from .db import Message
