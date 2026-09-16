@@ -87,6 +87,17 @@ def get_db():
     yield from database.session()
 
 
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception):
+    """Never a bare 500: log the traceback, show the shop what went wrong
+    and where, so a misconfiguration is diagnosable from the page."""
+    import traceback
+    log.error("unhandled on %s %s: %s\n%s", request.method, request.url.path, exc, traceback.format_exc())
+    body = (f"<h1>Something went wrong</h1><p><b>{type(exc).__name__}</b>: {str(exc)[:600]}</p>"
+            f"<p style='color:#666'>on {request.method} {request.url.path}</p><p><a href='/proofs'>Back to the board</a></p>")
+    return HTMLResponse(f"<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><body style='font:15px -apple-system,sans-serif;padding:24px;max-width:640px'>{body}</body>", status_code=500)
+
+
 # --- shop realm ---------------------------------------------------------------------------
 
 def current_member(request: Request, db: Session = Depends(get_db)) -> Optional[AccountUser]:
