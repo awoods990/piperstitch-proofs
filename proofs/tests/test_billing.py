@@ -41,7 +41,7 @@ def test_checkout_and_subscription_webhooks_flip_the_entitlement(document, outbo
         ent = db.get(database.AccountEntitlements, account_id)
         assert ent.proofs_enabled and ent.stripe_customer_id == "cus_1" and ent.can_send
     send_current(shop, pid, outbox, "b@example.com")   # now allowed
-    assert "$25/month" in shop.get("/settings").text and "Manage billing" in shop.get("/settings").text
+    assert "$24/month" in shop.get("/settings").text and "Manage billing" in shop.get("/settings").text
     # Subscription cancelled -> entitlement off, existing proof page still live.
     r = hook.post("/webhooks/stripe", content=_event("evt_2", "customer.subscription.deleted", {"object": "subscription", "id": "sub_1", "customer": "cus_1", "status": "canceled", "metadata": {"proofs_account_id": account_id}}))
     assert "canceled" in r.json()["result"]
@@ -96,7 +96,7 @@ def test_plan_is_license_admins_when_the_shop_signed_in_through_piperstitch(docu
     # Stripe's webhook lands in License Admin; coming back with ?subscribed=1 refreshes the mirror.
     la.proofs_plans["tok-la"].update({"subscribed": True, "status": "active", "has_billing": True})
     page = shop.get("/settings?subscribed=1").text
-    assert "subscribed to PiperStitch Proofs" in page and "Manage billing" in page and "$25/month" in page
+    assert "subscribed to PiperStitch Proofs" in page and "Manage billing" in page and "$24/month" in page
     send_current(shop, pid4, outbox, "la-4@example.com")
     assert la.proofs_plans["tok-la"]["free_used"] == 3   # subscribers aren't counted
     r = shop.post("/billing/portal", follow_redirects=False)

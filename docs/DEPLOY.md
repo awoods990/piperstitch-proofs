@@ -65,7 +65,7 @@ subscription. Everything shows on License Admin's existing pages
 On **License Admin**:
 
 - Run `python3 scripts/create_stripe_prices.py` (it now also creates the
-  "PiperStitch Proofs" product and $25/month price) and set
+  "PiperStitch Proofs" product and $24/month price) and set
   `STRIPE_PRICE_PROOFS_MONTHLY` to the price id it prints. Or create the
   price by hand in the same Stripe account.
 - Set `PROOFS_APP_URL=https://<proofs>` (where Checkout returns to).

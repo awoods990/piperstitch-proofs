@@ -102,7 +102,7 @@ class FakeLicenseAdmin:
 
     def _plan(self, token):
         return self.proofs_plans.setdefault(token, {"subscribed": False, "status": "none", "free_granted": 3, "free_used": 0, "used_refs": set(),
-                                                    "cancel_at_period_end": False, "has_billing": False, "period_end": None, "price_cents": 2500})
+                                                    "cancel_at_period_end": False, "has_billing": False, "period_end": None, "price_cents": 2400})
 
     def _state(self, plan):
         out = {k: v for k, v in plan.items() if k != "used_refs"}

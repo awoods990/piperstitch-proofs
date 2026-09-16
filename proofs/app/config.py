@@ -74,8 +74,8 @@ SMS_OUTBOX_DIR = os.environ.get("SMS_OUTBOX_DIR", "")   # dev/tests: write inste
 # --- billing (the Proofs add-on subscription; same Stripe account as License Admin) ---
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_PRICE_PROOFS = os.environ.get("STRIPE_PRICE_PROOFS", "")      # the $25/month price id
-PROOFS_PRICE_CENTS = _int("PROOFS_PRICE_CENTS", 25_00)
+STRIPE_PRICE_PROOFS = os.environ.get("STRIPE_PRICE_PROOFS", "")      # the monthly price id (standalone deployments only)
+PROOFS_PRICE_CENTS = _int("PROOFS_PRICE_CENTS", 24_00)   # the fallback; License Admin's actual price is mirrored per account
 
 # --- certificates -------------------------------------------------------------
 # Optional Ed25519 private key (base64url, 32 bytes) used to sign every

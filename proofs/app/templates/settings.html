@@ -24,10 +24,10 @@
 </form>
 
 <div class="panel"><h3>Plan</h3>
-{% if ent.proofs_enabled %}<p>PiperStitch Proofs — <b>${{ '%.0f'|format(PROOFS_PRICE_CENTS / 100) }}/month</b>{% if ent.subscription_status %} · {{ ent.subscription_status.replace('_',' ') }}{% endif %}{% if ent.cancel_at_period_end %} · ends at the period's end{% endif %}.</p>
+{% if ent.proofs_enabled %}<p>PiperStitch Proofs — <b>${{ '%.0f'|format((ent.price_cents or PROOFS_PRICE_CENTS) / 100) }}/month</b>{% if ent.subscription_status %} · {{ ent.subscription_status.replace('_',' ') }}{% endif %}{% if ent.cancel_at_period_end %} · ends at the period's end{% endif %}.</p>
 {% if ent.stripe_customer_id or ent.has_billing %}<form method="post" action="/billing/portal"><button class="btn">Manage billing</button></form>{% endif %}
 {% if ent.managed_by == 'license_admin' %}<p class="hint">Billed with your PiperStitch account — the same card and invoices.</p>{% endif %}
-{% else %}<p><b>{{ ent.free_proofs_granted - ent.free_proofs_used }}</b> of {{ ent.free_proofs_granted }} free proofs left. Unlimited proofs, automatic chasing, texting and art-by-email are <b>${{ '%.0f'|format(PROOFS_PRICE_CENTS / 100) }}/month</b>, cancel any time. Nothing you've sent is ever locked away.</p>
+{% else %}<p><b>{{ ent.free_proofs_granted - ent.free_proofs_used }}</b> of {{ ent.free_proofs_granted }} free proofs left. Unlimited proofs, automatic chasing, texting and art-by-email are <b>${{ '%.0f'|format((ent.price_cents or PROOFS_PRICE_CENTS) / 100) }}/month</b>, cancel any time. Nothing you've sent is ever locked away.</p>
 <form method="post" action="/billing/checkout"><button class="btn primary">Upgrade to Proofs</button></form>
 {% if ent.managed_by == 'license_admin' %}<p class="hint">Billed alongside your PiperStitch subscription, on the same card; both show on one account page.</p>{% endif %}{% endif %}</div>
 

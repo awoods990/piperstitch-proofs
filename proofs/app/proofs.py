@@ -94,6 +94,7 @@ def _apply_state(e: AccountEntitlements, state: dict) -> None:
     e.free_proofs_granted = int(state.get("free_granted") or 0)
     e.free_proofs_used = int(state.get("free_used") or 0)
     e.has_billing = bool(state.get("has_billing"))
+    e.price_cents = int(state.get("price_cents") or 0)
     e.synced_at = utcnow()
 
 
