@@ -474,3 +474,26 @@ def test_version_compare_serves_a_difference_image(document, outbox):
     reds = sum(1 for px in im.getdata() if px[0] > 150 and px[1] < 60)
     assert reds > 50, "the dropped stitches show up in red"
     assert cust.get(url + "/compare/2/difference.png").status_code == 404
+
+
+def test_every_shop_page_renders(document, outbox):
+    """GET every shop-side page, before and after a version exists -- a
+    template error only shows when the page is rendered."""
+    c = _client()
+    sign_in(c, "dana-pages@shop.example", outbox)
+    assert c.get("/proofs").status_code == 200
+    assert c.get("/proofs/new").status_code == 200
+    assert c.get("/settings").status_code == 200
+    r = c.post("/proofs/new", data={"title": "Pages", "contact_name": "P", "contact_email": "pages@example.com"}, follow_redirects=False)
+    pid = r.headers["location"].rsplit("/", 1)[1]
+    assert c.get(f"/proofs/{pid}").status_code == 200
+    assert c.get(f"/proofs/{pid}/compose").status_code == 200
+    pid2 = create_and_compose(c, document, email="pages2@example.com")
+    assert c.get(f"/proofs/{pid2}").status_code == 200
+    assert c.get(f"/proofs/{pid2}/compose").status_code == 200, "compose form with a previous version"
+    url = send_current(c, pid2, outbox, "pages2@example.com")
+    assert c.get(f"/proofs/{pid2}").status_code == 200
+    cust = TestClient(app)
+    assert cust.get(url).status_code == 200
+    assert cust.get(url + "/versions/1").status_code == 200
+    assert cust.get("/verify").status_code == 200
