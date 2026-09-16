@@ -14,6 +14,9 @@
 <label>Consent text</label><textarea name="consent_text">{{ terms.consent_text }}</textarea>
 <p><button class="btn">Save</button></p>
 </form>
+<div class="card"><h3>Texting (SMS)</h3>
+<p class="stamp">With texting on, customers who opted in on the intake form get the proof link and reminders by text as well as email, can reply STOP at any time, and can text photos of artwork straight in. {% if not SMS_CONFIGURED %}<b>Not configured on this server yet</b> (Twilio credentials and a registered number are needed).{% endif %}</p>
+<form method="post" action="/settings/sms"><select name="enabled"><option value="no" {% if not ent.sms_enabled %}selected{% endif %}>Off</option><option value="yes" {% if ent.sms_enabled %}selected{% endif %}>On</option></select> <button class="btn secondary">Save</button></form></div>
 <div class="card"><h3>Art by email</h3>{% if m.account.slug %}<p>Forward customer artwork to <b>art@{{ m.account.slug }}.piperstitch.com</b>. Mail from you or from a known customer becomes a proof straight away; anyone else waits for you to accept it. Messages that fail DKIM/DMARC are rejected.</p>{% else %}<form method="post" action="/settings/art-address"><p>Get an address customers and you can email artwork to.</p><button class="btn secondary">Create my art@ address</button></form>{% endif %}</div>
 <div class="card"><h3>Plan</h3>
 {% if ent.proofs_enabled %}<p>PiperStitch Proofs — <b>${{ '%.0f'|format(PROOFS_PRICE_CENTS / 100) }}/month</b>{% if ent.subscription_status %} · {{ ent.subscription_status.replace('_',' ') }}{% endif %}{% if ent.cancel_at_period_end %} · ends at the period's end{% endif %}.</p>

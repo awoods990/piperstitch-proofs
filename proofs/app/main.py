@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, billing, colorways, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, storage, stitch, texts, tokens
+from . import auth, billing, colorways, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, sms, storage, stitch, texts, tokens
 from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, File, InboundEmail, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
@@ -59,7 +59,7 @@ _here = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
 templates = Jinja2Templates(directory=str(_here / "templates"))
 templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
-                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS})
+                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured()})
 
 
 def _fmt_dt(value: str) -> str:
@@ -483,6 +483,29 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 @app.post("/settings/art-address")
 def art_address(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
     return _action(request, db, lambda: ingest.make_slug(db, m.account), "Your art address is art@{result}.piperstitch.com", "/settings")
+
+
+@app.post("/webhooks/twilio/inbound")
+async def twilio_inbound(request: Request, db: Session = Depends(get_db)):
+    """Twilio's inbound SMS/MMS webhook (set on the number or messaging service)."""
+    form = {k: str(v) for k, v in (await request.form()).items()}
+    url = str(request.url)
+    if config.PUBLIC_BASE_URL:
+        url = config.PUBLIC_BASE_URL + request.url.path + (("?" + request.url.query) if request.url.query else "")
+    if not sms.verify_signature(url, form, request.headers.get("X-Twilio-Signature", "")):
+        raise HTTPException(status_code=403, detail="bad signature")
+    reply = sms.inbound(db, form)
+    db.commit()
+    return Response(content=sms.twiml(reply), media_type="application/xml")
+
+
+@app.post("/settings/sms")
+def settings_sms(request: Request, enabled: str = Form("no"), m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
+    ent = proofs.entitlements(db, m.account)
+    ent.sms_enabled = enabled == "yes"
+    db.commit()
+    request.session["flash"] = "Texting is on." if ent.sms_enabled else "Texting is off."
+    return RedirectResponse("/settings", status_code=303)
 
 
 @app.post("/webhooks/postmark/bounce")

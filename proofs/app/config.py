@@ -59,6 +59,14 @@ POSTMARK_MESSAGE_STREAM = os.environ.get("POSTMARK_MESSAGE_STREAM", "outbound")
 # Shared secret for provider webhooks (Postmark bounces, inbound mail): the URL carries ?token=...
 WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "")
 
+# --- SMS / MMS (Twilio) -----------------------------------------------------------------
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+# Either a phone number (+1...) or a Messaging Service SID (MG...). A messaging
+# service is what A2P 10DLC registration attaches to; prefer it in production.
+TWILIO_FROM = os.environ.get("TWILIO_FROM", "")
+SMS_OUTBOX_DIR = os.environ.get("SMS_OUTBOX_DIR", "")   # dev/tests: write instead of send
+
 # --- billing (the Proofs add-on subscription; same Stripe account as License Admin) ---
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")

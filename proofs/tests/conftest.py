@@ -18,6 +18,7 @@ _tmp = tempfile.mkdtemp(prefix="proofs-test-")
 os.environ["DATABASE_PATH"] = str(Path(_tmp) / "test.db")
 os.environ["ARTIFACT_DIR"] = str(Path(_tmp) / "artifacts")
 os.environ["EMAIL_OUTBOX_DIR"] = str(Path(_tmp) / "outbox")
+os.environ["SMS_OUTBOX_DIR"] = str(Path(_tmp) / "sms")
 os.environ["SESSION_SECRET"] = "test-secret-test-secret-test-secret-1234"
 os.environ["PUBLIC_BASE_URL"] = "http://testserver"
 os.environ["LICENSE_ADMIN_URL"] = ""

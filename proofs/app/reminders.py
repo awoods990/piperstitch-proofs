@@ -25,8 +25,8 @@ from .db import Account, Contact, Proof, ProofVersion, ReminderSchedule, Reminde
 
 DEFAULT_CADENCES = {
     # (step, offset_hours, channel, condition)
-    "response": [(0, 48, "email", "not_opened"), (1, 96, "email", "opened_no_response"), (2, 96, "email", "not_opened"), (3, 144, "task", "always")],
-    "intake": [(0, 48, "email", "always"), (1, 120, "email", "always"), (2, 168, "task", "always")],
+    "response": [(0, 48, "email", "not_opened"), (1, 72, "sms", "always"), (2, 96, "email", "opened_no_response"), (3, 96, "email", "not_opened"), (4, 144, "task", "always")],
+    "intake": [(0, 48, "email", "always"), (1, 72, "sms", "always"), (2, 120, "email", "always"), (3, 168, "task", "always")],
 }
 
 
@@ -127,7 +127,10 @@ def _run_cadence(db: Session, proof: Proof, cadence: str, *, anchor_at: datetime
             elif in_quiet_hours(account, contact, now):
                 continue   # wait; try again next tick
             elif step.channel == "sms":
-                reason = "sms_not_enabled"
+                from . import sms as _sms
+                ok_sms, why = _sms.can_text(db, account, contact)
+                if not ok_sms:
+                    reason = why
         if reason:
             _log(db, step, proof, anchor_id, "suppressed", reason, due_at, now)
             suppressed += 1
@@ -146,7 +149,7 @@ def _deliver(db: Session, step: ReminderSchedule, proof: Proof, account: Account
             return False
         return emailer.send(to_email=account.reply_to_email, subject=f"Still waiting: {proof.reference} {proof.title}",
                             text=f"{contact.display_name or contact.email} hasn't {'sent artwork' if cadence == 'intake' else 'answered the proof'} after the reminders. Time for a call?\n\n{base_url or config.PUBLIC_BASE_URL}/proofs/{proof.id}")
-    if not contact.email:
+    if step.channel != "sms" and not contact.email:
         return False
     purpose = "intake" if cadence == "intake" else "proof"
     live = db.execute(select(_tokens.AccessToken).where(_tokens.AccessToken.proof_id == proof.id, _tokens.AccessToken.purpose == purpose,
@@ -165,7 +168,13 @@ def _deliver(db: Session, step: ReminderSchedule, proof: Proof, account: Account
         url = f"{base_url or config.PUBLIC_BASE_URL}/p/{plaintext}"
         text = f"Hi {contact.display_name or 'there'},\n\nYour proof for {proof.title} is waiting for a yes (or changes). It takes a minute on your phone:\n{url}\n\nNothing gets sewn until you approve.\n\n{shop}"
         subject = f"{shop}: your proof {proof.reference} is waiting"
-    ok = emailer.send(to_email=contact.email, subject=subject, text=text, reply_to=account.reply_to_email)
+    if step.channel == "sms":
+        from . import sms as _sms
+        short = (f"{shop}: still waiting on your artwork for {proof.title}: {url}" if cadence == "intake"
+                 else f"{shop}: your proof {proof.reference} is waiting for approval: {url}") + " Reply STOP to opt out."
+        ok = _sms.send(db, account, contact, short, proof=proof, kind="reminder")
+    else:
+        ok = emailer.send(to_email=contact.email, subject=subject, text=text, reply_to=account.reply_to_email)
     events.append(db, proof_id=proof.id, proof_version_id=version_id if cadence != "intake" else None, event_type="reminder_sent", actor_type="system",
                   payload={"cadence": cadence, "step": step.step_index, "channel": step.channel, "ok": ok})
     return ok

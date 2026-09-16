@@ -74,6 +74,23 @@ change is needed.
   `art@{slug}.piperstitch.com` works, or use Postmark's inbound address with
   plus-addressing (`art+{slug}@…`) — both are recognised.
 
+## 6b. Twilio (texting)
+
+Variables: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (a Messaging
+Service SID `MG…` is preferred; a bare `+1…` number also works). Set the
+number's or service's inbound webhook to
+`https://<proofs>/webhooks/twilio/inbound` (POST); the signature is verified
+with the auth token.
+
+**Before any text will deliver to a US number:** Twilio → Messaging →
+Regulatory Compliance → register an **A2P 10DLC brand** (your business) and
+a **campaign** ("customer notifications: proof links and reminders, opt-in
+collected on a web form, STOP to opt out"), then attach the number to the
+messaging service. Carrier review takes days to a few weeks and cannot be
+skipped — an unregistered number fails with error 30034. A verified
+toll-free number is the alternative for low volume. Sample opt-in language
+and the STOP flow are already in the product; use them on the form.
+
 ## 7. Smoke test on staging
 
 1. Open `https://<proofs>/signin`, enter your PiperStitch email, use the code

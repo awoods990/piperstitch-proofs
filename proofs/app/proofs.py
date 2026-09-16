@@ -443,6 +443,8 @@ def send_version(db: Session, v: ProofVersion, user: Optional[User], *, base_url
     ok = emailer.send(to_email=contact.email, subject=subject, text=body, reply_to=account.reply_to_email)
     events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="delivered" if ok else "bounced", actor_type="system",
                   payload={"channel": "email", "to": contact.email})
+    from . import sms
+    sms.send(db, account, contact, f"{shop}: your embroidery proof {proof.reference} is ready to approve: {url} Reply STOP to opt out.", proof=proof, kind="proof_sent")
     return url
 
 

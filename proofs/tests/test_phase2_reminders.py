@@ -92,28 +92,30 @@ def test_opened_no_response_step_quiet_hours_snooze_and_opt_out(document, outbox
     with database.SessionLocal() as db:
         r = reminders.run_due(db, now=_noon_for())
         db.commit()
-        assert r["sent"] == 0 and r["suppressed"] == 1
-        assert [s.suppressed_reason for s in _sent_reminders(db, pid)] == ["condition"]
+        # The 48 h email is suppressed (they opened); the 72 h SMS step is
+        # due too and suppressed because texting is off for this account.
+        assert r["sent"] == 0 and r["suppressed"] == 2
+        assert [s.suppressed_reason for s in _sent_reminders(db, pid)] == ["condition", "sms_not_enabled"]
     _set_sent_ago(pid, 100, relative_to=_late_night_for() - timedelta(hours=13))   # due before 23:00 and before noon the next day
     # Quiet hours: due, but it's 23:00 for the customer -> waits (no log yet).
     with database.SessionLocal() as db:
-        r = reminders.run_due(db, now=_late_night_for())
+        reminders.run_due(db, now=_late_night_for())
         db.commit()
-        assert r["sent"] == 0 and outbox.latest_to("slow@example.com") is None
+        assert not [x for x in _sent_reminders(db, pid) if x.status == "sent"] and outbox.latest_to("slow@example.com") is None
     # Next morning: fires.
     with database.SessionLocal() as db:
-        r = reminders.run_due(db, now=_noon_for() + timedelta(days=1))
+        reminders.run_due(db, now=_noon_for() + timedelta(days=1))
         db.commit()
-        assert r["sent"] == 1
+        assert [x.channel for x in _sent_reminders(db, pid) if x.status == "sent"] == ["email"]
     assert "waiting" in outbox.latest_to("slow@example.com")["subject"]
     # Day 9: the last email step is "not opened" (suppressed -- they did
     # open), and the shop gets its "still waiting" task.
     outbox.clear()
     _set_sent_ago(pid, 24 * 9, relative_to=_noon_for() + timedelta(days=2))
     with database.SessionLocal() as db:
-        r = reminders.run_due(db, now=_noon_for() + timedelta(days=2))
+        reminders.run_due(db, now=_noon_for() + timedelta(days=2))
         db.commit()
-        assert r["sent"] == 1
+        assert [x.channel for x in _sent_reminders(db, pid) if x.status == "sent"] == ["email", "task"]
     assert outbox.latest_to("slow@example.com") is None
     task = outbox.latest_to("dana-chase2@shop.example")
     assert task and "Still waiting" in task["subject"]
@@ -131,7 +133,7 @@ def test_snooze_and_opt_out_suppress_customer_reminders(document, outbox):
     with database.SessionLocal() as db:
         r = reminders.run_due(db, now=_noon_for())
         db.commit()
-        assert r["sent"] == 0 and [x.suppressed_reason for x in _sent_reminders(db, pid)] == ["snoozed"]
+        assert r["sent"] == 0 and [x.suppressed_reason for x in _sent_reminders(db, pid)] == ["snoozed", "snoozed"]   # the email and the SMS step
     # Opted out: the next email step is suppressed for that reason.
     with database.SessionLocal() as db:
         p = db.get(Proof, pid)

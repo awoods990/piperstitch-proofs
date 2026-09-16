@@ -54,5 +54,12 @@ Also in: intake links with the default question set (answers land as data, SMS
 consent evidence on the contact), shop direct upload, single-use intake
 tokens with expiry sweep, the shareable read-only Readiness Report link.
 AV scanning is recorded as `skipped` until a clamd sidecar is deployed.
-## Phase 3 · The shop's daily tools
+## Phase 3 · The shop's daily tools — started
+
+- **SMS/MMS via Twilio** (`sms.py`): the proof link and reminder steps by
+  text for contacts who opted in on the intake form (consent text stored as
+  carrier-audit evidence); STOP/START keywords; MMS photos become artwork on
+  the customer's open proof and are triaged; webhook signature verified.
+  Per-account "Texting" toggle in Settings. **Delivery to US numbers needs
+  A2P 10DLC registration on the Twilio account first** (see DEPLOY.md).
 ## Phase 4 · Polish and scale
