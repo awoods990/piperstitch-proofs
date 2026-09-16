@@ -34,6 +34,12 @@ class Forbidden(Exception):
     pass
 
 
+class EmailFailed(Exception):
+    """The state change happened (the version is sent, the link is live)
+    but the email transport refused it. Carries the link so the shop can
+    pass it on by hand."""
+
+
 # --- helpers ---------------------------------------------------------------------
 
 def _now() -> datetime:
@@ -445,6 +451,8 @@ def send_version(db: Session, v: ProofVersion, user: Optional[User], *, base_url
                   payload={"channel": "email", "to": contact.email})
     from . import sms
     sms.send(db, account, contact, f"{shop}: your embroidery proof {proof.reference} is ready to approve: {url} Reply STOP to opt out.", proof=proof, kind="proof_sent")
+    if not ok:
+        raise EmailFailed(url)
     return url
 
 

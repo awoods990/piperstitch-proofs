@@ -351,7 +351,18 @@ def send(request: Request, proof_id: str, version_id: str, m: AccountUser = Depe
     v = db.get(ProofVersion, version_id)
     if v is None or v.proof_id != p.id:
         raise HTTPException(404)
-    return _action(request, db, lambda: proofs.send_version(db, v, m.user, base_url=_base_url(request)), "Sent. Customer link: {result}", f"/proofs/{p.id}")
+    try:
+        url = proofs.send_version(db, v, m.user, base_url=_base_url(request))
+        db.commit()
+        request.session["flash"] = f"Sent. Customer link: {url}"
+    except proofs.EmailFailed as e:
+        db.commit()   # the send stands; only the email failed
+        request.session["flash_error"] = (f"The version is sent and the link is live, but the email could not be sent -- check the SMTP settings "
+                                          f"(Microsoft 365 only sends as the signed-in mailbox). Copy the link to the customer yourself: {e}")
+    except (proofs.TransitionError, core_client.CoreError) as e:
+        db.rollback()
+        request.session["flash_error"] = str(e)
+    return RedirectResponse(f"/proofs/{p.id}", status_code=303)
 
 
 @app.post("/proofs/{proof_id}/versions/{version_id}/resend")
