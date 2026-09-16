@@ -148,6 +148,10 @@ def signin_request(request: Request, email: str = Form(...), db: Session = Depen
         db.commit()
     except auth.AuthError as e:
         return templates.TemplateResponse(request, "signin.html", {"step": "email", "error": str(e), "email": email})
+    except Exception as e:  # noqa: BLE001  -- show the shop something, and log the real thing
+        db.rollback()
+        log.exception("sign-in request failed")
+        return templates.TemplateResponse(request, "signin.html", {"step": "email", "error": f"Couldn't send a code: {type(e).__name__}: {e}", "email": email})
     return templates.TemplateResponse(request, "signin.html", {"step": "code", "email": email.strip().lower(), "path": path})
 
 
@@ -158,6 +162,10 @@ def signin_verify(request: Request, email: str = Form(...), code: str = Form(...
         db.commit()
     except auth.AuthError as e:
         return templates.TemplateResponse(request, "signin.html", {"step": "code", "email": email, "error": str(e)})
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        log.exception("sign-in verify failed")
+        return templates.TemplateResponse(request, "signin.html", {"step": "code", "email": email, "error": f"Couldn't sign you in: {type(e).__name__}: {e}"})
     request.session["token"] = token
     return RedirectResponse("/proofs", status_code=303)
 

@@ -57,9 +57,14 @@ class LicenseAdminClient:
             raise CoreError(f"License Admin is unreachable: {e}") from e
         if r.status_code >= 500:
             raise CoreError(f"License Admin error {r.status_code}")
-        data = r.json()
+        try:
+            data = r.json()
+        except ValueError:
+            raise CoreError(f"License Admin answered {r.status_code} with something that isn't JSON from {self.base_url}{path} -- is LICENSE_ADMIN_URL right?")
         if r.status_code >= 400:
-            raise CoreError(data.get("message") or data.get("error") or f"License Admin error {r.status_code}")
+            raise CoreError(str(data.get("message") or data.get("error") or f"License Admin error {r.status_code}"))
+        if not isinstance(data, dict):
+            raise CoreError("Unexpected reply from License Admin")
         return data
 
     def request_signin(self, email: str) -> None:
