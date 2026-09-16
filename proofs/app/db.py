@@ -120,6 +120,11 @@ class AccountEntitlements(Base):
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     subscription_status: Mapped[str] = mapped_column(String, default="")
     cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
+    # When the shop signed in through PiperStitch, License Admin owns the
+    # plan and these columns mirror it (proofs.entitlements refreshes them).
+    managed_by: Mapped[str] = mapped_column(String, default="")          # "" (this service's own Stripe) | "license_admin"
+    has_billing: Mapped[bool] = mapped_column(Boolean, default=False)    # a Stripe customer exists in License Admin, so the portal works
+    synced_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     account: Mapped[Account] = relationship(back_populates="entitlements")
 

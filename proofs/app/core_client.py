@@ -84,6 +84,22 @@ class LicenseAdminClient:
     def save_project(self, token: str, project_id: str, name: str, document: dict) -> dict:
         return self._post("/api/web/projects/save", {"token": token, "id": project_id, "name": name, "document": document})
 
+    # PiperStitch Proofs billing lives in License Admin, next to the app's:
+    # three free proofs, then the Proofs subscription on the same customer.
+    def proofs_state(self, token: str) -> dict:
+        return self._post("/api/web/proofs/state", {"token": token})
+
+    def proofs_use(self, token: str, proof_ref: str) -> dict:
+        """Counts one sent proof against the free allowance. Raises
+        CoreError('...free proofs...') when they're used up."""
+        return self._post("/api/web/proofs/use", {"token": token, "proof_ref": proof_ref})
+
+    def proofs_checkout_url(self, token: str, *, success_url: str, cancel_url: str) -> str:
+        return self._post("/api/web/proofs/checkout", {"token": token, "success_url": success_url, "cancel_url": cancel_url})["url"]
+
+    def proofs_billing_portal_url(self, token: str, *, return_url: str) -> str:
+        return self._post("/api/web/proofs/billing-portal", {"token": token, "return_url": return_url})["url"]
+
     def get_preferences(self, token: str) -> Optional[dict]:
         """The shop's PiperStitch preferences (default hoop, thread library,
         suppliers) as the web app mirrors them; None when never synced."""

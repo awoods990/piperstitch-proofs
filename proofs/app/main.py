@@ -619,7 +619,11 @@ def inbound_reject(request: Request, email_id: str, m: AccountUser = Depends(req
 @app.post("/billing/checkout")
 def billing_checkout(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
     try:
-        url = billing.checkout_url(db, m.account, email=m.user.email, base_url=_base_url(request))
+        token = proofs.core_token_for(db, m.account)
+        if token:
+            url = core_client.license_admin.proofs_checkout_url(token, success_url=f"{_base_url(request)}/settings?subscribed=1", cancel_url=f"{_base_url(request)}/settings")
+        else:
+            url = billing.checkout_url(db, m.account, email=m.user.email, base_url=_base_url(request))
         db.commit()
     except (proofs.TransitionError, Exception) as e:  # noqa: BLE001  (Stripe errors are shown, not swallowed)
         db.rollback()
@@ -631,7 +635,8 @@ def billing_checkout(request: Request, m: AccountUser = Depends(require_can("set
 @app.post("/billing/portal")
 def billing_portal(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
     try:
-        url = billing.portal_url(db, m.account, base_url=_base_url(request))
+        token = proofs.core_token_for(db, m.account)
+        url = core_client.license_admin.proofs_billing_portal_url(token, return_url=f"{_base_url(request)}/settings") if token else billing.portal_url(db, m.account, base_url=_base_url(request))
     except (proofs.TransitionError, Exception) as e:  # noqa: BLE001
         request.session["flash_error"] = str(e)
         return RedirectResponse("/settings", status_code=303)
@@ -814,10 +819,12 @@ def run_ticket(proof_id: str, m: AccountUser = Depends(require_member), db: Sess
 
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings_form(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
+def settings_form(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db), subscribed: str = ""):
     terms = proofs.current_terms(db, m.account)
     members = list(db.execute(select(AccountUser).where(AccountUser.account_id == m.account_id, AccountUser.disabled_at.is_(None))).scalars())
-    ent = proofs.entitlements(db, m.account)
+    ent = proofs.entitlements(db, m.account, refresh=subscribed == "1")   # back from Stripe Checkout: pick the new plan up now
+    if subscribed == "1" and ent.proofs_enabled:
+        request.session["flash"] = "You're subscribed to PiperStitch Proofs — no limit on proofs from here. Thank you!"
     db.commit()
     return templates.TemplateResponse(request, "settings.html", {"m": m, "terms": terms, "members": members, "ent": ent,
                                                                   "flash": request.session.pop("flash", None), "error": request.session.pop("flash_error", None)})

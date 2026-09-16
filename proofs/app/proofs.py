@@ -74,12 +74,49 @@ def set_terms(db: Session, account: Account, *, body: str, consent_text: str) ->
     return t
 
 
-def entitlements(db: Session, account: Account) -> AccountEntitlements:
+def core_token_for(db: Session, account: Account) -> Optional[str]:
+    """The owner's PiperStitch session token, which is what License Admin
+    keys the account's plan on. None for accounts that only ever signed
+    in with Proofs codes (seat users, local development)."""
+    if not core_client.license_admin.configured:
+        return None
+    row = db.execute(select(AccountUser).where(AccountUser.account_id == account.id, AccountUser.role == "owner", AccountUser.disabled_at.is_(None),
+                                               AccountUser.core_session_token.isnot(None), AccountUser.core_session_token != "")
+                     .order_by(AccountUser.accepted_at.desc())).scalars().first()
+    return row.core_session_token if row else None
+
+
+def _apply_state(e: AccountEntitlements, state: dict) -> None:
+    e.managed_by = "license_admin"
+    e.proofs_enabled = bool(state.get("subscribed"))
+    e.subscription_status = str(state.get("status") or "")
+    e.cancel_at_period_end = bool(state.get("cancel_at_period_end"))
+    e.free_proofs_granted = int(state.get("free_granted") or 0)
+    e.free_proofs_used = int(state.get("free_used") or 0)
+    e.has_billing = bool(state.get("has_billing"))
+    e.synced_at = utcnow()
+
+
+def entitlements(db: Session, account: Account, *, refresh: bool = False) -> AccountEntitlements:
+    """The account's plan. For shops signed in through PiperStitch this
+    is License Admin's record, mirrored here and refreshed every few
+    minutes (or on demand); License Admin being down means the last
+    mirror stands. Otherwise this service's own free counter / Stripe."""
     e = db.get(AccountEntitlements, account.id)
     if e is None:
         e = AccountEntitlements(account_id=account.id)
         db.add(e)
         db.flush()
+    token = core_token_for(db, account)
+    if token:
+        stale = not e.synced_at or (_now() - parse_ts(e.synced_at)) > timedelta(minutes=config.ENTITLEMENT_SYNC_MINUTES)
+        if refresh or stale:
+            try:
+                _apply_state(e, core_client.license_admin.proofs_state(token))
+            except core_client.CoreError as exc:
+                log.warning("Proofs plan refresh failed for account %s: %s", account.id, exc)
+                if not e.synced_at:
+                    e.managed_by = "license_admin"
     return e
 
 
@@ -549,6 +586,16 @@ def send_version(db: Session, v: ProofVersion, user: Optional[User], *, base_url
     first_send = not any(x.sent_at for x in proof.versions)
     if first_send and not ent.can_send:
         raise TransitionError("You've used your free proofs. Upgrade to PiperStitch Proofs to keep sending.")
+    token = core_token_for(db, account) if first_send else None
+    if token:
+        # License Admin keeps the count (idempotent per proof); if it's
+        # unreachable the mirror above already said yes, so carry on.
+        try:
+            _apply_state(ent, core_client.license_admin.proofs_use(token, proof.id))
+        except core_client.CoreError as exc:
+            if "free proofs" in str(exc).lower():
+                raise TransitionError(str(exc))
+            log.warning("Proofs use could not be recorded in License Admin for %s: %s", proof.id, exc)
 
     # Supersede: every earlier version in a customer-facing state.
     for old in proof.versions:
@@ -565,7 +612,7 @@ def send_version(db: Session, v: ProofVersion, user: Optional[User], *, base_url
     v.sent_at = utcnow()
     v.response_expires_at = _iso(_now() + timedelta(days=proof.response_window_days))
     proof.current_version_id = v.id
-    if first_send and not ent.proofs_enabled:
+    if first_send and not ent.proofs_enabled and ent.managed_by != "license_admin":
         ent.free_proofs_used += 1
     url = f"{base_url or config.PUBLIC_BASE_URL}/p/{plaintext}"
     events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="sent", actor_type="user" if user else "system",

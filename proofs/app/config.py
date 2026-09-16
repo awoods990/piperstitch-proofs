@@ -85,6 +85,9 @@ CERTIFICATE_SIGNING_KEY = os.environ.get("CERTIFICATE_SIGNING_KEY", "")
 
 # --- product defaults ---------------------------------------------------------
 FREE_PROOFS_GRANTED = _int("FREE_PROOFS_GRANTED", 3)
+# How often the plan mirrored from License Admin is refreshed (a send
+# always asks License Admin directly).
+ENTITLEMENT_SYNC_MINUTES = _int("ENTITLEMENT_SYNC_MINUTES", 10)
 PROOF_TOKEN_DAYS = _int("PROOF_TOKEN_DAYS", 30)
 DEFAULT_RESPONSE_WINDOW_DAYS = _int("DEFAULT_RESPONSE_WINDOW_DAYS", 7)
 SIGNIN_CODE_TTL_MINUTES = _int("SIGNIN_CODE_TTL_MINUTES", 15)

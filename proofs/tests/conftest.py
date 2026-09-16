@@ -96,6 +96,40 @@ class FakeLicenseAdmin:
     def get_preferences(self, token):
         return self.preferences
 
+    # Proofs plan, as License Admin keeps it: {token: state}. A token
+    # that isn't listed is treated as a fresh customer with 3 free proofs.
+    proofs_plans: dict[str, dict] = {}
+
+    def _plan(self, token):
+        return self.proofs_plans.setdefault(token, {"subscribed": False, "status": "none", "free_granted": 3, "free_used": 0, "used_refs": set(),
+                                                    "cancel_at_period_end": False, "has_billing": False, "period_end": None, "price_cents": 2500})
+
+    def _state(self, plan):
+        out = {k: v for k, v in plan.items() if k != "used_refs"}
+        out["free_left"] = max(0, plan["free_granted"] - plan["free_used"])
+        out["can_send"] = plan["subscribed"] or out["free_left"] > 0
+        return out
+
+    def proofs_state(self, token):
+        return self._state(self._plan(token))
+
+    def proofs_use(self, token, proof_ref):
+        plan = self._plan(token)
+        if not plan["subscribed"]:
+            if plan["free_used"] >= plan["free_granted"]:
+                raise core_client.CoreError(f"All {plan['free_granted']} free proofs have been used -- subscribe to PiperStitch Proofs to keep sending.")
+            if proof_ref not in plan["used_refs"]:
+                plan["used_refs"].add(proof_ref)
+                plan["free_used"] += 1
+        return self._state(plan)
+
+    def proofs_checkout_url(self, token, *, success_url, cancel_url):
+        self.last_checkout = (token, success_url, cancel_url)
+        return "https://checkout.stripe.test/proofs"
+
+    def proofs_billing_portal_url(self, token, *, return_url):
+        return "https://billing.stripe.test/portal"
+
     def save_project(self, token, project_id, name, document):
         self.projects[project_id] = {"id": project_id, "name": name, "document": document, "widthMM": document.get("physicalWidthMM", 0), "heightMM": document.get("physicalHeightMM", 0)}
         return {"saved": True}

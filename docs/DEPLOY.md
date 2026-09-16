@@ -41,30 +41,39 @@ Railway → the existing PiperStitch project → **New service → GitHub repo �
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | as License Admin (Microsoft 365), or |
 | `POSTMARK_API_TOKEN`, `POSTMARK_FROM` | Postmark instead of SMTP |
 | `WEBHOOK_TOKEN` | random string; goes in the Postmark webhook URLs below |
-| `STRIPE_SECRET_KEY` | the same Stripe account as License Admin (test keys for staging) |
-| `STRIPE_PRICE_PROOFS` | a recurring **$25/month** price created in that account ("PiperStitch Proofs") |
-| `STRIPE_WEBHOOK_SECRET` | from the webhook endpoint in step 5 |
 | `CERTIFICATE_SIGNING_KEY` | optional: base64url of 32 random bytes (Ed25519 seed) to sign certificates |
-| `FREE_PROOFS_GRANTED` | `3` (default) |
+| `STRIPE_*`, `FREE_PROOFS_GRANTED` | **not needed** when `LICENSE_ADMIN_URL` is set — the plan lives in License Admin (step 5). Only for a standalone/dev deployment. |
 
 Leave `REQUIRE_LICENSE_ADMIN_SIGNIN` unset: with `LICENSE_ADMIN_URL` set it
 defaults to on, so owners sign in with their PiperStitch email code.
 
-## 4. Core-side prerequisite (already in Core's repo, deploy it)
+## 4. Core-side prerequisites (already in Core's repo, deploy them)
 
-`POST /api/v1/internal/export/{format}` (Core commit `15ffe65`) and
-`POST /api/v1/internal/build-from-artwork` (Core commit `b511eee`) on the app
-server. Redeploy the app service so both routes are live. No other Core change
-is needed.
+App server: `POST /api/v1/internal/export/{format}` (Core `15ffe65`),
+`POST /api/v1/internal/build-from-artwork` (`b511eee`), and
+`/api/v1/auth/preferences` (`fbb8679`). Web app: `?project=` / `?return=`
+(`e4d8586`, `fe4d37f`). License Admin: preferences (`fbb8679`) and the
+Proofs product (`0d130a2`). Redeploy the app service and License Admin.
 
-## 5. Stripe
+## 5. Billing — in License Admin, not here
 
-- Products → add **PiperStitch Proofs**, recurring, $25.00 / month → copy the
-  price id into `STRIPE_PRICE_PROOFS`.
-- Developers → Webhooks → add endpoint `https://<proofs>/webhooks/stripe` for
-  `checkout.session.completed`, `customer.subscription.created`,
-  `customer.subscription.updated`, `customer.subscription.deleted` → copy the
-  signing secret into `STRIPE_WEBHOOK_SECRET`.
+Proofs is sold as a second product on the same customer record: three free
+proofs (`PROOFS_FREE_PROOFS` in License Admin), then its own monthly
+subscription. Everything shows on License Admin's existing pages
+(customer, Subscribers, Dashboard, Financials).
+
+On **License Admin**:
+
+- Run `python3 scripts/create_stripe_prices.py` (it now also creates the
+  "PiperStitch Proofs" product and $25/month price) and set
+  `STRIPE_PRICE_PROOFS_MONTHLY` to the price id it prints. Or create the
+  price by hand in the same Stripe account.
+- Set `PROOFS_APP_URL=https://<proofs>` (where Checkout returns to).
+- No new webhook: License Admin's existing `/webhooks/stripe` endpoint
+  already receives every subscription event and routes it by product.
+
+Proofs asks License Admin for the plan with the owner's PiperStitch session
+and mirrors it locally, so a License Admin outage never blocks the shop.
 
 ## 6. Postmark (optional but needed for bounces and art-by-email)
 
@@ -101,7 +110,9 @@ and the STOP flow are already in the product; use them on the form.
 3. Open the link on your phone, approve, check the certificate email and
    `/verify/<sha>`.
 4. Release → run ticket PDF.
-5. Settings → Upgrade → Stripe test card `4242…` → the plan card should flip.
+5. Settings → Upgrade → Stripe test card `4242…` → back on Settings the plan
+   card flips, and the customer's page in License Admin shows the Proofs
+   subscription next to their PiperStitch one.
 
 ## Backups
 
