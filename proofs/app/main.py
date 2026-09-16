@@ -298,6 +298,12 @@ async def compose(request: Request, proof_id: str, m: AccountUser = Depends(requ
         request.session["flash_error"] = str(e)
         return RedirectResponse(f"/proofs/{p.id}/compose", status_code=303)
     request.session["flash"] = f"Version {v.version_number} composed: {v.stitch_count:,} stitches, {v.width_mm:.1f} × {v.height_mm:.1f} mm."
+    # The fabric comes from the Core project; the garment from this form. Say so when they disagree.
+    template = garments.TEMPLATE_BY_ID.get(v.garment_template_id)
+    fabric_is_cap = v.fabric_code in ("structuredCap", "unstructuredCap", "beanie")
+    if template and (template.category == "cap") != fabric_is_cap:
+        request.session["flash_error"] = (f"Heads up: the PiperStitch project is set up for “{texts.FABRIC_NAMES.get(v.fabric_code, v.fabric_code)}” but this proof is on a {template.name.lower()}. "
+                                          "The customer will see both. If that's wrong, change the fabric in PiperStitch and compose again.")
     return RedirectResponse(f"/proofs/{p.id}", status_code=303)
 
 
