@@ -454,3 +454,23 @@ def test_colorways_are_offered_and_the_chosen_one_is_on_the_certificate(document
     r = c.post(f"/proofs/{proof_id}/versions/{vid}/colorways", data={"name": "late", "hex_1": stops[0], "hex_2": "#000000"}, follow_redirects=False)
     with database.SessionLocal() as db:
         assert len(db.get(ProofVersion, vid).colorways) == 1
+
+
+def test_version_compare_serves_a_difference_image(document, outbox):
+    c = _client()
+    sign_in(c, "dana-cmp@shop.example", outbox)
+    proof_id = create_and_compose(c, document, email="cmp@example.com")
+    send_current(c, proof_id, outbox, "cmp@example.com")
+    c.post(f"/proofs/{proof_id}/compose", data={"quantity": "24"}, files={"document_file": ("v2.stitchpilot", json.dumps(dict(document, name="Cap v2")), "application/json")}, follow_redirects=False)
+    url = send_current(c, proof_id, outbox, "cmp@example.com")
+    cust = TestClient(app)
+    page = cust.get(url).text
+    assert "Before and after" in page and "What changed" in page
+    r = cust.get(url + "/compare/1/difference.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    from PIL import Image
+    import io
+    im = Image.open(io.BytesIO(r.content)).convert("RGB")
+    reds = sum(1 for px in im.getdata() if px[0] > 150 and px[1] < 60)
+    assert reds > 50, "the dropped stitches show up in red"
+    assert cust.get(url + "/compare/2/difference.png").status_code == 404

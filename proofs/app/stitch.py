@@ -14,7 +14,7 @@ import io
 import json
 from dataclasses import dataclass, field
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 STITCH, JUMP, COLOR_CHANGE, TRIM, STOP, END = 0, 1, 2, 3, 4, 5
 
@@ -194,6 +194,27 @@ def fit_into(png: bytes, size: tuple[int, int], background: tuple = (247, 243, 2
     out = io.BytesIO()
     canvas.save(out, format="PNG", optimize=False, compress_level=6)
     return out.getvalue()
+
+
+def difference_png(a_png: bytes, b_png: bytes) -> bytes:
+    """Where two renders differ: both scaled to the larger canvas,
+    unchanged pixels faded to grey, changed pixels in red -- the
+    'difference' view of the version compare (PRD 5.5)."""
+    from PIL import ImageChops
+    a = Image.open(io.BytesIO(a_png)).convert("RGB")
+    b = Image.open(io.BytesIO(b_png)).convert("RGB")
+    size = (max(a.width, b.width), max(a.height, b.height))
+    bg = (247, 243, 236)
+    ca, cb = Image.new("RGB", size, bg), Image.new("RGB", size, bg)
+    ca.paste(a, ((size[0] - a.width) // 2, (size[1] - a.height) // 2))
+    cb.paste(b, ((size[0] - b.width) // 2, (size[1] - b.height) // 2))
+    diff = ImageChops.difference(ca, cb).convert("L").point(lambda v: 255 if v > 40 else 0)
+    faded = Image.blend(cb.convert("L").convert("RGB"), Image.new("RGB", size, bg), 0.6)
+    red = Image.new("RGB", size, (176, 0, 32))
+    out = Image.composite(red, faded, diff.filter(ImageFilter.MaxFilter(3)) if size[0] > 8 else diff)
+    buf = io.BytesIO()
+    out.save(buf, format="PNG", optimize=False, compress_level=6)
+    return buf.getvalue()
 
 
 def sha256(data: bytes) -> str:

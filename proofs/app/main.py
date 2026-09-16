@@ -775,6 +775,20 @@ def public_decline(request: Request, plaintext: str, reason: str = Form(""), db:
     return RedirectResponse(f"/p/{plaintext}", status_code=303)
 
 
+@app.get("/p/{plaintext}/compare/{n}/difference.png")
+def public_difference(plaintext: str, n: int, db: Session = Depends(get_db)):
+    """Version n against the current one, as a difference image."""
+    state, v, p = _public_version(db, plaintext)
+    if not state.ok or v is None:
+        raise HTTPException(404)
+    old = next((x for x in p.versions if x.version_number == n), None)
+    if old is None or old.id == v.id:
+        raise HTTPException(404)
+    a = storage.get(proofs._artifact_key(p, old.version_number, "render.png"))
+    b = storage.get(proofs._artifact_key(p, v.version_number, "render.png"))
+    return Response(content=stitch.difference_png(a, b), media_type="image/png")
+
+
 @app.get("/p/{plaintext}/versions/{n}", response_class=HTMLResponse)
 def public_version(request: Request, plaintext: str, n: int, db: Session = Depends(get_db)):
     """Read-only view of an earlier version through the current link."""

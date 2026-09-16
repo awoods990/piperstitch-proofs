@@ -45,7 +45,7 @@ new sends only.
 | DKIM-failing messages rejected outright; DKIM-valid unknown senders quarantined, not auto-created | ✅ plus 50/account and 10/sender hourly limits, immutable near-miss-refusing slugs |
 | A blocker prevents composition until resolved or overridden; the override appears on the proof and in the event chain | ✅ |
 | Change requests land as a checklist with pins; Core overlays the pins | ✅ checklist with normalized pins (Core overlay is a later Core hook) |
-| Version compare renders v1 against v2 with a difference view on a phone | ◐ side-by-side on the proof page; slider/difference views not yet |
+| Version compare renders v1 against v2 with a difference view on a phone | ✅ side-by-side, slider, and a server-rendered difference image |
 | Both reminder cadences fire on schedule, respect quiet hours, suppress correctly, cancel on customer action | ✅ email + shop task steps (`reminders.py`); SMS steps are logged as suppressed until Phase 3 |
 | Internal reviewer can fail a proof back with a note; can't review own version | ✅ |
 | A hard bounce raises an in-app banner within 60 s | ✅ via the Postmark bounce webhook (`/webhooks/postmark/bounce?token=`) → board banner + shop email |
