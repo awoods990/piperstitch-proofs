@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, storage, stitch, texts, tokens
+from . import auth, billing, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, storage, stitch, texts, tokens
 from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, File, InboundEmail, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
@@ -59,7 +59,7 @@ _here = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
 templates = Jinja2Templates(directory=str(_here / "templates"))
 templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
-                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID})
+                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS})
 
 
 def _fmt_dt(value: str) -> str:
@@ -424,6 +424,41 @@ def inbound_reject(request: Request, email_id: str, m: AccountUser = Depends(req
     if row is None or row.account_id != m.account_id:
         raise HTTPException(404)
     return _action(request, db, lambda: ingest.reject(db, row, m.user), "Rejected.", "/proofs")
+
+
+@app.post("/billing/checkout")
+def billing_checkout(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
+    try:
+        url = billing.checkout_url(db, m.account, email=m.user.email, base_url=_base_url(request))
+        db.commit()
+    except (proofs.TransitionError, Exception) as e:  # noqa: BLE001  (Stripe errors are shown, not swallowed)
+        db.rollback()
+        request.session["flash_error"] = str(e)
+        return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse(url, status_code=303)
+
+
+@app.post("/billing/portal")
+def billing_portal(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
+    try:
+        url = billing.portal_url(db, m.account, base_url=_base_url(request))
+    except (proofs.TransitionError, Exception) as e:  # noqa: BLE001
+        request.session["flash_error"] = str(e)
+        return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse(url, status_code=303)
+
+
+@app.post("/webhooks/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    payload = await request.body()
+    try:
+        result = billing.handle_webhook(db, payload, request.headers.get("stripe-signature", ""))
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        log.warning("stripe webhook rejected: %s", e)
+        raise HTTPException(status_code=400, detail="bad webhook")
+    return {"result": result}
 
 
 @app.post("/settings/art-address")

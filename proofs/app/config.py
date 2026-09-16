@@ -59,6 +59,12 @@ POSTMARK_MESSAGE_STREAM = os.environ.get("POSTMARK_MESSAGE_STREAM", "outbound")
 # Shared secret for provider webhooks (Postmark bounces, inbound mail): the URL carries ?token=...
 WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "")
 
+# --- billing (the Proofs add-on subscription; same Stripe account as License Admin) ---
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_PROOFS = os.environ.get("STRIPE_PRICE_PROOFS", "")      # the $25/month price id
+PROOFS_PRICE_CENTS = _int("PROOFS_PRICE_CENTS", 25_00)
+
 # --- certificates -------------------------------------------------------------
 # Optional Ed25519 private key (base64url, 32 bytes) used to sign every
 # certificate in addition to the hash chain. Without it certificates are

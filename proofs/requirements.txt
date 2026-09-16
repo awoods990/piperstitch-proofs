@@ -11,3 +11,4 @@ reportlab==4.2.5
 cryptography==44.0.0
 python-dotenv==1.0.1
 pytest==8.3.4
+stripe==11.4.1

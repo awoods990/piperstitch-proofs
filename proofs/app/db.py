@@ -114,12 +114,24 @@ class AccountEntitlements(Base):
     free_proofs_granted: Mapped[int] = mapped_column(Integer, default=config.FREE_PROOFS_GRANTED)
     free_proofs_used: Mapped[int] = mapped_column(Integer, default=0)
     trial_ends_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    subscription_status: Mapped[str] = mapped_column(String, default="")
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
 
     account: Mapped[Account] = relationship(back_populates="entitlements")
 
     @property
     def can_send(self) -> bool:
         return self.proofs_enabled or self.free_proofs_used < self.free_proofs_granted
+
+
+class StripeEvent(Base):
+    """Webhook idempotency: one row per Stripe event id we've applied."""
+    __tablename__ = "stripe_event"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    type: Mapped[str] = mapped_column(String, default="")
+    received_at: Mapped[str] = mapped_column(String, default=utcnow)
 
 
 class SignInCode(Base):

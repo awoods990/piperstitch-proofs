@@ -16,6 +16,8 @@ and artifacts), TLS from the platform.
 | `CORE_SERVER_URL` | the app server's URL |
 | `CORE_API_KEY` | the app server's `WEB_API_KEY` (its `X-API-Key` for `/api/v1/internal/*`) |
 | `SMTP_*` or `POSTMARK_*` | as License Admin |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PROOFS` | the same Stripe account as License Admin; a recurring $25 price; webhook endpoint `/webhooks/stripe` for `checkout.session.completed` and `customer.subscription.*` |
+| `WEBHOOK_TOKEN` | shared secret in Postmark webhook URLs |
 | `CERTIFICATE_SIGNING_KEY` | optional; base64url Ed25519 private key (32 bytes) |
 
 ## Core-side prerequisites (additive, already in Core's repo)

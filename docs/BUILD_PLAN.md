@@ -26,8 +26,11 @@ placement diagram on the page, the PDF and the run ticket.
 
 **Deliberately not yet:** intake links,
 triage, version compare view, colorways, SMS, reminders, sew-out log,
-estimator, thread inventory, internal review, Stripe checkout for the add-on
-(Phase 1 ships the three free proofs).
+estimator, thread inventory (Phase 3).
+
+Billing: Stripe Checkout (subscription mode) for the $25/month add-on, the
+Billing Portal, idempotent webhooks flipping `proofs_enabled`; a lapse blocks
+new sends only.
 
 ## Phase 2 · Intake and iteration — built (16 Sep 2026), 13 tests
 
