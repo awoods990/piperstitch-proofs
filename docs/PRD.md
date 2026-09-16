@@ -50,6 +50,15 @@ Version 1.1 · September 16, 2026 · Prepared for Ashley Woods · Status: **acce
 >    dashboard is), mobile-first. The React toolchain from Core's `web/` can replace
 >    the pipeline board later if its interaction outgrows server rendering.
 >
+> 8. **Garment context, Phase 1:** twelve *drawn* garment templates (silhouette,
+>    seams, shading, tinted to any garment colour) with zones carrying real-world
+>    scale, rather than photographs with displacement maps. Honest by design
+>    (principle 2 — a drawing is obviously a drawing) and colourable without a
+>    photo per colour; photo templates use the same zone model later.
+> 9. **Artifact key set** gains two optional keys, `mockup` and `diagram` (the
+>    garment mockup and the placement diagram), alongside `{pdf, render, hero,
+>    social, machine_files}`; `approval_record.artifact_hashes` uses the same set.
+>
 > Open questions 1–4 in the v1.0 text remain open.
 
 ## Executive summary

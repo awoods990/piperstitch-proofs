@@ -15,7 +15,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import config, core_client, emailer, events, pdfgen, stitch, storage, texts, tokens
+from . import config, core_client, emailer, events, garments, pdfgen, stitch, storage, texts, tokens
 from .db import (Account, AccountEntitlements, AccountUser, ApprovalRecord, ChangeRequest, Contact, Message, Proof, ProofVersion,
                  TermsVersion, ThreadStop, User, parse_ts, utcnow)
 
@@ -185,6 +185,7 @@ def _size_breakdown_from_form(raw: str) -> dict:
 def compose_version(db: Session, proof: Proof, user: Optional[User], *, document: dict, garment_style_name: str = "",
                     garment_color: str = "", placement_name: str = "", placement_notes: str = "", quantity: int = 0,
                     size_breakdown: Optional[dict] = None, message_body: str = "", price_line: str = "", hoop_code: str = "",
+                    garment_template_id: str = "", garment_zone: str = "", placement_down_mm: float = 0, placement_across_mm: float = 0,
                     stitch_client: Optional[core_client.StitchClient] = None) -> ProofVersion:
     """Build version N from a Core document: digitize, analyse, render,
     export every machine file, produce the PDF, hash all of it, copy the
@@ -203,14 +204,22 @@ def compose_version(db: Session, proof: Proof, user: Optional[User], *, document
     previous = existing[-1] if existing else None
     terms = current_terms(db, account)
     fabric = (document.get("objects") or [{}])[0].get("parameters", {}).get("fabricType", "standard") if document.get("objects") else "standard"
+    template = garments.TEMPLATE_BY_ID.get(garment_template_id) if garment_template_id else None
+    zone = template.zone(garment_zone or template.default_zone) if template else None
+    if template and not placement_name.strip():
+        placement_name = zone.label
+    if template and not placement_notes.strip():
+        placement_notes = garments.measured_note(template, zone, analysis.height_mm, placement_down_mm, placement_across_mm, account.units)
 
     v = ProofVersion(
         proof_id=proof.id, version_number=n, status="ready_to_send", design_hash=analysis.design_hash,
         stitch_count=analysis.stitch_count, color_change_count=analysis.color_change_count, trim_count=analysis.trim_count,
         width_mm=analysis.width_mm, height_mm=analysis.height_mm, estimated_run_seconds=analysis.estimated_run_seconds,
         fabric_code=fabric, hoop_code=hoop_code, stabilizer_advice=texts.STABILIZER_ADVICE.get(fabric, ""),
-        garment_style_name=garment_style_name.strip(), garment_color=garment_color.strip(), placement_name=placement_name.strip(),
+        garment_style_name=garment_style_name.strip() or (template.name if template else ""), garment_color=garment_color.strip(), placement_name=placement_name.strip(),
         placement_notes=placement_notes.strip(), quantity=int(quantity or 0), size_breakdown_json=json.dumps(size_breakdown or {}),
+        garment_template_id=template.id if template else "", garment_zone=zone.id if zone else "",
+        placement_down_mm=float(placement_down_mm or 0), placement_across_mm=float(placement_across_mm or 0),
         price_line=price_line.strip(), terms_version_id=terms.id, message_body=message_body.strip(),
         document_json=stitch.canonical_json(document), composed_by=user.id if user else None,
     )
@@ -223,8 +232,13 @@ def compose_version(db: Session, proof: Proof, user: Optional[User], *, document
 
     # Artifacts, atomically at creation, each hashed (PRD "Formats produced").
     render = stitch.render_png(digitized)
-    hero = stitch.fit_into(render, (1200, 630))
-    social = stitch.fit_into(render, (1080, 1080))
+    mockup = diagram = b""
+    if template:
+        render_ppm = stitch.render_pixels_per_mm(render, analysis)
+        mockup = garments.composite(render, render_ppm, template, zone, garments.color_hex(garment_color), offsets_mm=(placement_down_mm, placement_across_mm))
+        diagram = garments.placement_diagram(template, zone, analysis.width_mm, analysis.height_mm, placement_down_mm, placement_across_mm, account.units)
+    hero = stitch.fit_into(mockup or render, (1200, 630))
+    social = stitch.fit_into(mockup or render, (1080, 1080))
     machine: dict[str, bytes] = {fmt: client.export(document, fmt) for fmt in core_client.MACHINE_FORMATS}
     contact = db.get(Contact, proof.contact_id)
     pdf = pdfgen.proof_pdf(
@@ -235,11 +249,16 @@ def compose_version(db: Session, proof: Proof, user: Optional[User], *, document
         placement=v.placement_name, placement_notes=v.placement_notes, quantity=v.quantity, size_breakdown=v.size_breakdown,
         fabric_name=texts.FABRIC_NAMES.get(fabric, fabric), stabilizer=v.stabilizer_advice, terms_body=terms.body, message=v.message_body,
         price_line=v.price_line, design_hash=v.design_hash, supersedes=previous.version_number if previous else None,
+        mockup_png=mockup or None, diagram_png=diagram or None,
     )
     hashes = {"pdf": stitch.sha256(pdf), "render": stitch.sha256(render), "hero": stitch.sha256(hero), "social": stitch.sha256(social),
+              "mockup": stitch.sha256(mockup) if mockup else "", "diagram": stitch.sha256(diagram) if diagram else "",
               "machine_files": {fmt: stitch.sha256(data) for fmt, data in machine.items()}}
     storage.put(_artifact_key(proof, n, "proof.pdf"), pdf)
     storage.put(_artifact_key(proof, n, "render.png"), render)
+    if mockup:
+        storage.put(_artifact_key(proof, n, "mockup.png"), mockup)
+        storage.put(_artifact_key(proof, n, "diagram.png"), diagram)
     storage.put(_artifact_key(proof, n, "hero.png"), hero)
     storage.put(_artifact_key(proof, n, "social.png"), social)
     for fmt, data in machine.items():
@@ -271,6 +290,7 @@ def describe_changes(a: ProofVersion, b: ProofVersion) -> str:
     if a.stitch_count != b.stitch_count:
         parts.append(f"stitches {a.stitch_count:,} → {b.stitch_count:,}")
     for field, label in (("garment_style_name", "garment"), ("garment_color", "garment colour"), ("placement_name", "placement"),
+                         ("placement_down_mm", "placement offset"), ("placement_across_mm", "placement offset"),
                          ("fabric_code", "fabric"), ("quantity", "quantity")):
         if getattr(a, field) != getattr(b, field):
             parts.append(f"{label} {getattr(a, field) or '—'} → {getattr(b, field) or '—'}")
@@ -285,7 +305,9 @@ def conditions_snapshot(v: ProofVersion) -> dict:
     return {
         "design_hash": v.design_hash, "version": v.version_number, "width_mm": v.width_mm, "height_mm": v.height_mm,
         "stitch_count": v.stitch_count, "garment_style_name": v.garment_style_name, "garment_color": v.garment_color,
+        "garment_template": v.garment_template_id, "garment_zone": v.garment_zone,
         "placement_name": v.placement_name, "placement_notes": v.placement_notes, "quantity": v.quantity,
+        "placement_offsets_mm": {"down": v.placement_down_mm, "across": v.placement_across_mm},
         "size_breakdown": v.size_breakdown, "fabric_code": v.fabric_code, "colorway_ordinal": 1,
         "thread_stops": [f"{s.stop_number}: {s.thread_name} {s.thread_code}".strip() for s in v.thread_stops],
     }
@@ -533,8 +555,10 @@ def verify_artifacts(db: Session, v: ProofVersion) -> tuple[bool, list[str]]:
     proof = db.get(Proof, v.proof_id)
     expected = v.artifact_hashes
     problems = []
-    checks = {"pdf": "proof.pdf", "render": "render.png", "hero": "hero.png", "social": "social.png"}
+    checks = {"pdf": "proof.pdf", "render": "render.png", "hero": "hero.png", "social": "social.png", "mockup": "mockup.png", "diagram": "diagram.png"}
     for key, name in checks.items():
+        if not expected.get(key):
+            continue   # optional artifact not produced for this version
         k = _artifact_key(proof, v.version_number, name)
         if not storage.exists(k) or stitch.sha256(storage.get(k)) != expected.get(key):
             problems.append(key)

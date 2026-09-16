@@ -51,7 +51,8 @@ def create_and_compose(c: TestClient, document: dict, *, title="Left chest logo"
     assert r.status_code == 303
     proof_id = r.headers["location"].rsplit("/", 1)[1]
     form = {"garment_style_name": "Port & Company polo", "garment_color": "Navy", "placement_name": "Left chest",
-            "placement_notes": "4.0 in below shoulder seam, 3.0 in from centre front", "quantity": "24", "size_breakdown": "S:4, M:10, L:8, XL:2",
+            "placement_notes": "", "quantity": "24", "size_breakdown": "S:4, M:10, L:8, XL:2", "garment_template_id": "polo", "garment_zone": "left_chest",
+            "placement_down": "0.5", "placement_across": "0", "placement_units": "in",
             "message_body": "Here's the proof — the red is Madeira 1147.", "hoop_code": "4x4"}
     form.update(compose)
     r = c.post(f"/proofs/{proof_id}/compose", data=form, files={"document_file": ("cap.stitchpilot", json.dumps(document), "application/json")}, follow_redirects=False)
@@ -84,7 +85,10 @@ def test_owner_composes_and_sends_a_proof_in_one_pass(document, outbox):
         assert sum(s.stitch_count for s in v.thread_stops) == v.stitch_count
         assert v.fabric_code == "structuredCap" and "cap backing" in v.stabilizer_advice
         h = v.artifact_hashes
-        assert set(h) == {"pdf", "render", "hero", "social", "machine_files"}
+        assert set(h) == {"pdf", "render", "hero", "social", "mockup", "diagram", "machine_files"}
+        assert h["mockup"] and h["diagram"], "a garment template was chosen, so the mockup and diagram exist"
+        assert v.garment_template_id == "polo" and v.garment_zone == "left_chest"
+        assert "below shoulder seam" in v.placement_notes and "centre" in v.placement_notes
         assert set(h["machine_files"]) == set(core_client.MACHINE_FORMATS)
         # Every hash matches the stored bytes and the fixture machine files.
         assert h["machine_files"]["dst"] == hashlib.sha256((Path(__file__).parent / "fixtures/cap.dst").read_bytes()).hexdigest()
@@ -393,3 +397,24 @@ def test_void_revokes_links_and_expired_versions_can_be_resent(document, outbox)
         assert db.get(Proof, proof_id).status == "void"
     assert "cancelled" in cust.get(new_url).text
     assert cust.post(new_url + "/approve", data={"signer_name": "x", "consent": "yes"}).status_code == 404
+
+
+def test_every_garment_template_composes_and_measures(document):
+    """All twelve templates, every zone, produce a mockup and a diagram."""
+    from app import garments
+    d = json.loads((Path(__file__).parent / "fixtures/cap_digitize.json").read_text())
+    render = stitch.render_png(d)
+    analysis = stitch.analyze(d)
+    ppm = stitch.render_pixels_per_mm(render, analysis)
+    assert len(garments.TEMPLATES) == 12
+    for t in garments.TEMPLATES:
+        for z in t.zones:
+            mock = garments.composite(render, ppm, t, z, garments.color_hex("Navy"))
+            diag = garments.placement_diagram(t, z, analysis.width_mm, analysis.height_mm, 12.7, 0)
+            assert len(mock) > 5000 and len(diag) > 5000, f"{t.id}/{z.id}"
+            note = garments.measured_note(t, z, analysis.height_mm, 12.7, 0)
+            assert z.anchor_label in note and ("below" in note or "above" in note), note
+    # True relative scale: the polo mockup places a 55.6 mm logo at 55.6 / mm_per_px pixels.
+    t = garments.TEMPLATE_BY_ID["polo"]
+    assert abs(t.mm_per_px * (930 - 70) - 560) < 1e-6
+    assert garments.color_hex("navy") == "#1f2d4d" and garments.color_hex("#ABCDEF") == "#abcdef" and garments.color_hex("nonsense") == "#9b9d9f"

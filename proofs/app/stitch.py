@@ -176,6 +176,12 @@ def render_png(digitized: dict, *, pixels_per_mm: float = 12.0, padding_mm: floa
     return out.getvalue()
 
 
+def render_pixels_per_mm(render_png: bytes, analysis: Analysis, padding_mm: float = 4.0) -> float:
+    """The scale `render_png` was drawn at (its width spans the design plus padding)."""
+    im = Image.open(io.BytesIO(render_png))
+    return im.width / (max(analysis.width_mm, 1) + padding_mm * 2)
+
+
 def fit_into(png: bytes, size: tuple[int, int], background: tuple = (247, 243, 236)) -> bytes:
     """The render centred on a canvas of `size` (hero 1200x630, social 1080x1080)."""
     src = Image.open(io.BytesIO(png)).convert("RGB")

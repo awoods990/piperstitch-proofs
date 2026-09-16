@@ -21,7 +21,10 @@ Also in: on-behalf approvals, questions/answers, decline, void, expiry
 sweep + resend, release gate (hard/soft/off), settings with versioned terms,
 seat invitations.
 
-**Deliberately not yet:** garment compositing (12 templates), intake links,
+Garment context: 12 drawn templates with true-scale zones, mockup + measured
+placement diagram on the page, the PDF and the run ticket.
+
+**Deliberately not yet:** intake links,
 triage, version compare view, colorways, SMS, reminders, sew-out log,
 estimator, thread inventory, internal review, Stripe checkout for the add-on
 (Phase 1 ships the three free proofs).

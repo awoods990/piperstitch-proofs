@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, core_client, db as database, events, pdfgen, proofs, storage, stitch, texts, tokens
+from . import auth, config, core_client, db as database, events, garments, pdfgen, proofs, storage, stitch, texts, tokens
 from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, Message, Proof, ProofVersion, TermsVersion, User
 
 log = logging.getLogger("proofs")
@@ -57,7 +57,8 @@ app.add_middleware(SessionMiddleware, secret_key=config.SESSION_SECRET or "dev-o
 _here = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
 templates = Jinja2Templates(directory=str(_here / "templates"))
-templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES})
+templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
+                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID})
 
 
 def _fmt_dt(value: str) -> str:
@@ -278,7 +279,9 @@ async def compose(request: Request, proof_id: str, m: AccountUser = Depends(requ
             db, p, m.user, document=document, garment_style_name=str(form.get("garment_style_name", "")), garment_color=str(form.get("garment_color", "")),
             placement_name=str(form.get("placement_name", "")), placement_notes=str(form.get("placement_notes", "")),
             quantity=int(form.get("quantity") or 0), size_breakdown=proofs._size_breakdown_from_form(str(form.get("size_breakdown", ""))),
-            message_body=str(form.get("message_body", "")), price_line=str(form.get("price_line", "")), hoop_code=str(form.get("hoop_code", "")))
+            message_body=str(form.get("message_body", "")), price_line=str(form.get("price_line", "")), hoop_code=str(form.get("hoop_code", "")),
+            garment_template_id=str(form.get("garment_template_id", "")), garment_zone=str(form.get("garment_zone", "")),
+            placement_down_mm=_mm(form.get("placement_down"), form.get("placement_units")), placement_across_mm=_mm(form.get("placement_across"), form.get("placement_units")))
         db.commit()
     except (proofs.TransitionError, core_client.CoreError) as e:
         db.rollback()
@@ -286,6 +289,14 @@ async def compose(request: Request, proof_id: str, m: AccountUser = Depends(requ
         return RedirectResponse(f"/proofs/{p.id}/compose", status_code=303)
     request.session["flash"] = f"Version {v.version_number} composed: {v.stitch_count:,} stitches, {v.width_mm:.1f} × {v.height_mm:.1f} mm."
     return RedirectResponse(f"/proofs/{p.id}", status_code=303)
+
+
+def _mm(value, units) -> float:
+    try:
+        v = float(str(value or "0").strip() or 0)
+    except ValueError:
+        return 0.0
+    return v * 25.4 if (units or "in") == "in" else v
 
 
 def _action(request: Request, db: Session, fn, ok_message: str, back: str):
@@ -367,7 +378,7 @@ def shop_artifact(proof_id: str, version_id: str, artifact: str, m: AccountUser 
 
 def _serve_artifact(p: Proof, v: ProofVersion, artifact: str, *, gate: str = "off") -> Response:
     names = {"proof.pdf": ("proof.pdf", "application/pdf"), "render.png": ("render.png", "image/png"), "hero.png": ("hero.png", "image/png"),
-             "social.png": ("social.png", "image/png")}
+             "social.png": ("social.png", "image/png"), "mockup.png": ("mockup.png", "image/png"), "diagram.png": ("diagram.png", "image/png")}
     for fmt in core_client.MACHINE_FORMATS:
         names[f"design.{fmt}"] = (f"design.{fmt}", "application/octet-stream")
     if artifact not in names:
@@ -392,7 +403,8 @@ def run_ticket(proof_id: str, m: AccountUser = Depends(require_member), db: Sess
         raise HTTPException(404, "Nothing composed yet.")
     approval = db.execute(select(ApprovalRecord).where(ApprovalRecord.proof_version_id == v.id)).scalar_one_or_none()
     render = storage.get(proofs._artifact_key(p, v.version_number, "render.png"))
-    pdf = pdfgen.run_ticket_pdf(
+    diagram_key = proofs._artifact_key(p, v.version_number, "diagram.png")
+    pdf = pdfgen.run_ticket_pdf(diagram_png=storage.get(diagram_key) if storage.exists(diagram_key) else None,
         shop_name=m.account.shop_name or "PiperStitch Proofs", reference=p.reference, title=p.title, version_number=v.version_number, render_png=render,
         stops=[proofs.stop_dict(s) for s in v.thread_stops], width_mm=v.width_mm, height_mm=v.height_mm, stitch_count=v.stitch_count,
         color_change_count=v.color_change_count, trim_count=v.trim_count, hoop=v.hoop_code, fabric_name=texts.FABRIC_NAMES.get(v.fabric_code, v.fabric_code),

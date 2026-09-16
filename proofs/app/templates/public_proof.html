@@ -15,6 +15,8 @@
 {% elif v.status == 'changes_requested' %}<div class="flash">Your change requests are with the shop. You'll get a new version to approve.</div>{% endif %}
 
 <div class="card">
+{% if v.artifact_hashes.mockup %}<div class="render" style="margin-bottom:10px"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/mockup.png" alt="On the garment at relative size"></div>
+<p class="stamp" style="margin:0 0 10px">On a {{ v.garment_color|lower }} {{ TEMPLATE_BY_ID[v.garment_template_id].name|lower if v.garment_template_id in TEMPLATE_BY_ID else 'garment' }} at relative size — a drawing, not a photograph. Below, the stitches themselves:</p>{% endif %}
 <div class="render" id="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/render.png" alt="Your logo as it will sew" id="renderImg"></div>
 <p class="stamp" style="margin:8px 0 0">Pinch or zoom to inspect. This is rendered from the actual machine file at true scale.</p>
 <div class="honesty">{{ HONESTY_NOTE }}</div>
@@ -27,6 +29,7 @@
 <tr><td>Fabric</td><td>{{ FABRIC_NAMES.get(v.fabric_code, v.fabric_code) }}<br><span class="stamp">Backing: {{ v.stabilizer_advice }}</span></td></tr>
 {% if v.price_line %}<tr><td>Price</td><td>{{ v.price_line }}</td></tr>{% endif %}
 </table>
+{% if v.artifact_hashes.diagram %}<h3 style="margin-top:14px">Where it goes</h3><div class="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/diagram.png" alt="Placement diagram"></div>{% endif %}
 <h3 style="margin-top:14px">Thread colours, in sewing order</h3>
 <ul class="stops">{% for s in v.thread_stops %}<li><span class="n">{{ s.stop_number }}</span><span class="swatch" style="background:{{ s.hex }}"></span>{{ s.thread_name }}{% if s.thread_code %} <span class="stamp">{{ s.thread_brand }} {{ s.thread_code }}</span>{% endif %}<span class="count">{{ '{:,}'.format(s.stitch_count) }} st</span></li>{% endfor %}</ul>
 {% if v.message_body %}<h3 style="margin-top:14px">From {{ account.shop_name or 'the shop' }}</h3><p>{{ v.message_body }}</p>{% endif %}

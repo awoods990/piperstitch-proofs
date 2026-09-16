@@ -10,7 +10,8 @@
 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><h2 style="margin:0">Version {{ current.version_number }} of {{ versions|length }}</h2><span class="badge {% if current.status in ('approved','approved_with_notes') %}ok{% elif current.status in ('changes_requested','expired','declined') %}warn{% endif %}">{{ current.status.replace('_',' ') }}</span>{% if current.sent_at %}<span class="stamp">sent {{ current.sent_at|dt }} · responds by {{ current.response_expires_at[:10] }}</span>{% endif %}</div>
 {% if current.change_summary %}<p class="stamp">What changed: {{ current.change_summary }}</p>{% endif %}
 <div class="row" style="margin-top:10px">
-<div class="render" style="flex:2"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/render.png" alt="Stitch render"></div>
+<div style="flex:2"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/{{ 'mockup.png' if current.artifact_hashes.mockup else 'render.png' }}" alt="Proof"></div>
+{% if current.artifact_hashes.mockup %}<div class="row" style="margin-top:8px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/render.png" alt="Stitch render"></div><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/diagram.png" alt="Placement"></div></div>{% endif %}</div>
 <div style="flex:1">
 <table class="specs">
 <tr><td>Size</td><td>{{ current.width_mm|inches }} × {{ current.height_mm|inches }} in<br><span class="stamp">{{ '%.2f'|format(current.width_mm) }} × {{ '%.2f'|format(current.height_mm) }} mm</span></td></tr>

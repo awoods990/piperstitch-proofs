@@ -212,8 +212,12 @@ class ProofVersion(Base):
     stabilizer_advice: Mapped[str] = mapped_column(Text, default="")
     garment_style_name: Mapped[str] = mapped_column(String, default="")
     garment_color: Mapped[str] = mapped_column(String, default="")
+    garment_template_id: Mapped[str] = mapped_column(String, default="")
+    garment_zone: Mapped[str] = mapped_column(String, default="")
     placement_name: Mapped[str] = mapped_column(String, default="")
     placement_notes: Mapped[str] = mapped_column(Text, default="")
+    placement_down_mm: Mapped[float] = mapped_column(Float, default=0)
+    placement_across_mm: Mapped[float] = mapped_column(Float, default=0)
     quantity: Mapped[int] = mapped_column(Integer, default=0)
     size_breakdown_json: Mapped[str] = mapped_column(Text, default="{}")
     price_line: Mapped[str] = mapped_column(String, default="")
@@ -407,10 +411,37 @@ if config.DATABASE_URL.startswith("sqlite"):
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    _add_missing_columns()
     if config.DATABASE_URL.startswith("sqlite"):
         with engine.begin() as connection:
             for statement in _APPEND_ONLY_TRIGGERS:
                 connection.execute(text(statement))
+
+
+def _add_missing_columns() -> None:
+    """Columns added after a table first shipped: `create_all` leaves an
+    existing table alone, so add them with guarded ALTERs (License Admin's
+    own migration style). Only additive changes are ever made here."""
+    from sqlalchemy import inspect
+    inspector = inspect(engine)
+    with engine.begin() as connection:
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {column.type.compile(engine.dialect)}'
+                default = column.default.arg if column.default is not None and not callable(column.default.arg) else None
+                if default is not None:
+                    if isinstance(default, bool):
+                        ddl += f" DEFAULT {1 if default else 0}"
+                    elif isinstance(default, (int, float)):
+                        ddl += f" DEFAULT {default}"
+                    else:
+                        ddl += " DEFAULT '" + str(default).replace("'", "''") + "'"
+                connection.execute(text(ddl))
 
 
 def session() -> Iterator[Session]:

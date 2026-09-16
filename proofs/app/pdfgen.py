@@ -60,7 +60,7 @@ def proof_pdf(*, shop_name: str, reference: str, title: str, version_number: int
               color_change_count: int, trim_count: int, stops: list[dict], garment: str, garment_color: str,
               placement: str, placement_notes: str, quantity: int, size_breakdown: dict, fabric_name: str,
               stabilizer: str, terms_body: str, message: str, price_line: str = "", design_hash: str = "",
-              supersedes: Optional[int] = None) -> bytes:
+              supersedes: Optional[int] = None, mockup_png: Optional[bytes] = None, diagram_png: Optional[bytes] = None) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, leftMargin=0.7 * inch, rightMargin=0.7 * inch, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
                             title=f"{reference} {title} — proof v{version_number}", author=shop_name)
@@ -72,8 +72,14 @@ def proof_pdf(*, shop_name: str, reference: str, title: str, version_number: int
     story.append(_p(stamp, SMALL))
     story.append(_p(f"Prepared for {contact_name}", SMALL))
     story.append(Spacer(1, 8))
-    story.append(_render_flowable(render_png, 7.0 * inch, 4.2 * inch))
-    story.append(_p("Rendered from the actual machine file at true scale. " + texts.HONESTY_NOTE, SMALL))
+    if mockup_png:
+        pair = Table([[_render_flowable(mockup_png, 3.4 * inch, 3.4 * inch), _render_flowable(render_png, 3.4 * inch, 3.4 * inch)]], colWidths=[3.5 * inch, 3.5 * inch])
+        pair.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (0, 0), (-1, -1), "CENTER")]))
+        story.append(pair)
+        story.append(_p("Left: on the garment at relative size (a drawing, not a photograph). Right: the stitch render from the actual machine file at true scale. " + texts.HONESTY_NOTE, SMALL))
+    else:
+        story.append(_render_flowable(render_png, 7.0 * inch, 4.2 * inch))
+        story.append(_p("Rendered from the actual machine file at true scale. " + texts.HONESTY_NOTE, SMALL))
     story.append(Spacer(1, 6))
 
     specs = [
@@ -92,6 +98,9 @@ def proof_pdf(*, shop_name: str, reference: str, title: str, version_number: int
     story.append(t)
     story.append(_p("Thread stops, in sewing order", H2))
     story.append(_stop_table(stops))
+    if diagram_png:
+        story.append(_p("Placement", H2))
+        story.append(_render_flowable(diagram_png, 3.6 * inch, 3.6 * inch))
     if message:
         story.append(_p("Note from the shop", H2))
         story.append(_p(message))
@@ -108,7 +117,7 @@ def run_ticket_pdf(*, shop_name: str, reference: str, title: str, version_number
                    width_mm: float, height_mm: float, stitch_count: int, color_change_count: int, trim_count: int,
                    hoop: str, fabric_name: str, stabilizer: str, garment: str, garment_color: str, placement: str,
                    placement_notes: str, quantity: int, size_breakdown: dict, estimated_run: str, approved_at: str,
-                   approved_by: str, machine_files: dict, cleared: bool) -> bytes:
+                   approved_by: str, machine_files: dict, cleared: bool, diagram_png: Optional[bytes] = None) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, leftMargin=0.7 * inch, rightMargin=0.7 * inch, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
                             title=f"{reference} run ticket", author=shop_name)
@@ -116,7 +125,12 @@ def run_ticket_pdf(*, shop_name: str, reference: str, title: str, version_number
     story.append(_p("CLEARED TO SEW" if cleared else "NOT CLEARED — approval missing", ParagraphStyle("c", parent=H2, textColor=colors.HexColor("#1b7a3d" if cleared else "#b00020"))))
     story.append(_p(f"Approved {approved_at} by {approved_by}" if approved_at else "No approval on record", SMALL))
     story.append(Spacer(1, 6))
-    story.append(_render_flowable(render_png, 3.6 * inch, 3.0 * inch))
+    if diagram_png:
+        pair = Table([[_render_flowable(render_png, 3.4 * inch, 3.0 * inch), _render_flowable(diagram_png, 3.4 * inch, 3.0 * inch)]], colWidths=[3.5 * inch, 3.5 * inch])
+        pair.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+        story.append(pair)
+    else:
+        story.append(_render_flowable(render_png, 3.6 * inch, 3.0 * inch))
     rows = [
         ["Files", ", ".join(f"{k.upper()} {v[:12]}…" for k, v in machine_files.items()) or "—"],
         ["Hoop", hoop or "—"], ["Fabric", fabric_name], ["Backing", stabilizer],
