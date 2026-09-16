@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}PiperStitch Proofs{% endblock %}</title>
+<link rel="stylesheet" href="/static/proofs.css">
+{% block head %}{% endblock %}
+</head><body>
+{% block header %}{% endblock %}
+<main class="wrap {% block wrapclass %}{% endblock %}">
+{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+</body></html>

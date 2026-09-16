@@ -1,0 +1,72 @@
+{% extends "shop_base.html" %}
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h1 style="margin:0">{{ p.reference }} · {{ p.title }}</h1><span class="badge">{{ p.status.replace('_',' ') }}</span></div>
+<p class="stamp">For {{ p.contact.display_name or '—' }}{% if p.contact.company_name %} · {{ p.contact.company_name }}{% endif %} · {{ p.contact.email }}{% if p.due_date %} · due {{ p.due_date }}{% endif %}</p>
+
+{% if not current %}
+<div class="card"><p>No version yet.</p>{% if can('compose') %}<a class="btn" href="/proofs/{{ p.id }}/compose">Compose version 1</a>{% endif %}</div>
+{% else %}
+<div class="card">
+<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><h2 style="margin:0">Version {{ current.version_number }} of {{ versions|length }}</h2><span class="badge {% if current.status in ('approved','approved_with_notes') %}ok{% elif current.status in ('changes_requested','expired','declined') %}warn{% endif %}">{{ current.status.replace('_',' ') }}</span>{% if current.sent_at %}<span class="stamp">sent {{ current.sent_at|dt }} · responds by {{ current.response_expires_at[:10] }}</span>{% endif %}</div>
+{% if current.change_summary %}<p class="stamp">What changed: {{ current.change_summary }}</p>{% endif %}
+<div class="row" style="margin-top:10px">
+<div class="render" style="flex:2"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/render.png" alt="Stitch render"></div>
+<div style="flex:1">
+<table class="specs">
+<tr><td>Size</td><td>{{ current.width_mm|inches }} × {{ current.height_mm|inches }} in<br><span class="stamp">{{ '%.2f'|format(current.width_mm) }} × {{ '%.2f'|format(current.height_mm) }} mm</span></td></tr>
+<tr><td>Stitches</td><td>{{ '{:,}'.format(current.stitch_count) }} · {{ current.color_change_count }} changes · {{ current.trim_count }} trims</td></tr>
+<tr><td>Run time</td><td>~{{ current.estimated_run_seconds|duration }} per piece</td></tr>
+<tr><td>Garment</td><td>{{ current.garment_style_name or '—' }}{% if current.garment_color %} · {{ current.garment_color }}{% endif %}</td></tr>
+<tr><td>Placement</td><td>{{ current.placement_name or '—' }}{% if current.placement_notes %}<br><span class="stamp">{{ current.placement_notes }}</span>{% endif %}</td></tr>
+<tr><td>Quantity</td><td>{{ current.quantity or 0 }}{% if current.size_breakdown %} ({% for k, v in current.size_breakdown.items() %}{{ k }}×{{ v }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}</td></tr>
+<tr><td>Fabric</td><td>{{ FABRIC_NAMES.get(current.fabric_code, current.fabric_code) }}</td></tr>
+</table>
+<ul class="stops" style="margin-top:8px">{% for s in current.thread_stops %}<li><span class="n">{{ s.stop_number }}</span><span class="swatch" style="background:{{ s.hex }}"></span>{{ s.thread_name }}{% if s.thread_code %} <span class="stamp">{{ s.thread_code }}</span>{% endif %}<span class="count">{{ '{:,}'.format(s.stitch_count) }}</span></li>{% endfor %}</ul>
+</div></div>
+<p style="margin-top:12px"><a class="btn secondary" href="/proofs/{{ p.id }}/versions/{{ current.id }}/proof.pdf" target="_blank">Proof PDF</a>
+{% for fmt in ['dst','pes','exp','jef','vp3'] %}<a class="btn secondary" href="/proofs/{{ p.id }}/versions/{{ current.id }}/design.{{ fmt }}" style="padding:10px 10px">{{ fmt|upper }}</a> {% endfor %}
+<a class="btn secondary" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">Run ticket</a></p>
+{% if p.status not in ('released','completed') and m.account.release_gate_policy != 'off' %}<p class="stamp">Release gate: <b>{{ m.account.release_gate_policy }}</b> — {% if m.account.release_gate_policy == 'hard' %}machine files are withheld until release.{% else %}machine files download with an unapproved warning until release.{% endif %}</p>{% endif %}
+
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+{% if current.status == 'ready_to_send' and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/send"><button class="btn">Send to {{ p.contact.email or 'customer' }}</button></form>{% endif %}
+{% if current.status in ('sent','viewed','changes_requested','expired','declined') and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn secondary">Resend link</button></form>{% endif %}
+{% if current.status in ('changes_requested','expired','declined','approved','approved_with_notes','sent','viewed') and p.status not in ('released','completed','void') and can('compose') %}<a class="btn secondary" href="/proofs/{{ p.id }}/compose">Compose version {{ current.version_number + 1 }}</a>{% endif %}
+{% if current.status in ('approved','approved_with_notes') and p.status not in ('released','completed') and can('release') %}<form method="post" action="/proofs/{{ p.id }}/release"><button class="btn">Release to production</button></form>{% endif %}
+{% if p.status == 'released' and can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn">Mark sewn</button></form>{% endif %}
+</div>
+</div>
+
+{% if approval %}
+<div class="card"><h2>Approval</h2>
+<p>{{ approval.signer_name_typed }} ({{ approval.signer_email }}) approved {{ approval.approved_at|dt }}{% if approval.method == 'on_behalf' %} — recorded by the shop ({{ approval.on_behalf_channel }}){% endif %}.{% if approval.notes %}<br>Notes: {{ approval.notes }}{% endif %}</p>
+<p class="mono">Certificate SHA-256 {{ approval.certificate_sha256 }}</p>
+<p><a class="btn secondary" href="/verify/{{ approval.certificate_sha256 }}" target="_blank">Verify</a></p>
+</div>
+{% endif %}
+
+{% if changes %}
+<div class="card"><h2>Change requests on v{{ current.version_number }}</h2><ol>{% for c in changes %}<li>{% if c.kind == 'pin' %}<span class="badge">pin {{ '%.0f'|format(c.pin_x*100) }}%, {{ '%.0f'|format(c.pin_y*100) }}%</span> {% elif c.chip_code %}<span class="badge">{{ c.chip_code.replace('_',' ') }}</span> {% endif %}{{ c.body }}</li>{% endfor %}</ol></div>
+{% endif %}
+
+<div class="card"><h2>Messages</h2>
+{% for msg in messages %}<p><b>{{ 'Customer' if msg.direction == 'inbound' else 'Shop' }}</b> <span class="stamp">{{ msg.created_at|dt }}</span><br>{{ msg.body }}</p>{% else %}<p class="stamp">No questions yet.</p>{% endfor %}
+{% if can('respond') and current.sent_at %}<form method="post" action="/proofs/{{ p.id }}/reply"><label>Reply to the customer</label><textarea name="body"></textarea><p><button class="btn secondary">Send reply</button></p></form>{% endif %}
+</div>
+
+{% if can('on_behalf') and current.status in ('sent','viewed','changes_requested') %}
+<details class="card"><summary>Record an approval on the customer's behalf (phone / in person)</summary>
+<form method="post" action="/proofs/{{ p.id }}/approve-on-behalf"><div class="row"><div><label>Customer's name</label><input type="text" name="signer_name" required></div><div><label>How they approved</label><select name="channel"><option value="phone">Phone call</option><option value="in_person">In person</option><option value="text">Text message</option><option value="email">Email</option></select></div></div>
+<label>Evidence (what they said, when)</label><input type="text" name="evidence" placeholder="Called 2:10pm, said 'go ahead with the navy'"><label>Notes</label><input type="text" name="notes"><p><button class="btn">Record approval</button></p></form></details>
+{% endif %}
+{% endif %}
+
+{% if p.status not in ('void','completed') and can('void') %}
+<details class="card"><summary>Void this proof</summary><form method="post" action="/proofs/{{ p.id }}/void"><label>Reason</label><input type="text" name="reason"><p><button class="btn danger">Void</button></p></form></details>
+{% endif %}
+
+<details class="card"><summary>Evidence chain ({{ chain|length }} events, {% if chain_ok %}verified{% else %}BROKEN: {{ chain_msg }}{% endif %})</summary>
+<ol class="events">{% for e in chain %}<li>#{{ e.sequence }} {{ e.occurred_at|dt }} <b>{{ e.event_type }}</b> by {{ e.actor_type }}{% if e.ip %} from {{ e.ip }}{% endif %} <span class="mono">{{ e.event_hash[:16] }}…</span></li>{% endfor %}</ol></details>
+
+{% if versions|length > 1 %}<details class="card"><summary>All versions</summary><ul>{% for v in versions %}<li>v{{ v.version_number }} — {{ v.status.replace('_',' ') }} · composed {{ v.composed_at|dt }} · <a href="/proofs/{{ p.id }}/versions/{{ v.id }}/proof.pdf" target="_blank">PDF</a></li>{% endfor %}</ul></details>{% endif %}
+{% endblock %}

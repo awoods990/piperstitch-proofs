@@ -1,0 +1,17 @@
+{% extends "shop_base.html" %}
+{% block content %}
+<h1>New proof</h1>
+<form method="post" action="/proofs/new" class="card">
+<h3>Who is it for?</h3>
+{% if contacts %}<label>Existing customer</label><select onchange="var o=this.options[this.selectedIndex];if(o.value){document.querySelector('[name=contact_name]').value=o.dataset.name;document.querySelector('[name=contact_email]').value=o.value;document.querySelector('[name=contact_company]').value=o.dataset.company}"><option value="">— pick or type below —</option>{% for c in contacts %}<option value="{{ c.email }}" data-name="{{ c.display_name }}" data-company="{{ c.company_name }}">{{ c.display_name or c.email }}{% if c.company_name %} · {{ c.company_name }}{% endif %}</option>{% endfor %}</select>{% endif %}
+<div class="row"><div><label>Name</label><input type="text" name="contact_name" placeholder="Marcus Lee"></div><div><label>Email</label><input type="email" name="contact_email" placeholder="marcus@example.com"></div></div>
+<div class="row"><div><label>Company (optional)</label><input type="text" name="contact_company"></div><div><label>Phone (optional)</label><input type="text" name="contact_phone"></div></div>
+<h3 style="margin-top:18px">The design</h3>
+{% if projects %}<label>Saved PiperStitch project</label><select name="core_project_id" onchange="var o=this.options[this.selectedIndex];document.querySelector('[name=core_project_name]').value=o.dataset.name||'';if(!document.querySelector('[name=title]').value)document.querySelector('[name=title]').value=o.dataset.name||''"><option value="">— none yet (upload a file when composing) —</option>{% for pr in projects %}<option value="{{ pr.id }}" data-name="{{ pr.name }}">{{ pr.name }}{% if pr.widthMM %} · {{ '%.0f'|format(pr.widthMM) }}×{{ '%.0f'|format(pr.heightMM) }} mm{% endif %}</option>{% endfor %}</select>
+{% elif project_error %}<p class="stamp">Couldn't list your PiperStitch projects: {{ project_error }}. You can upload a .stitchpilot file when composing.</p>
+{% else %}<p class="stamp">You can pick a saved PiperStitch project here when Proofs is connected to your account, or upload a .stitchpilot file when composing.</p>{% endif %}
+<input type="hidden" name="core_project_name">
+<div class="row"><div><label>Title</label><input type="text" name="title" placeholder="Left chest logo — 24 polos"></div><div><label>Due date (optional)</label><input type="date" name="due_date"></div></div>
+<p><button class="btn big">Create proof</button></p>
+</form>
+{% endblock %}

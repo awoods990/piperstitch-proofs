@@ -1,0 +1,18 @@
+{% extends "shop_base.html" %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post" action="/settings" class="card">
+<h3>Shop</h3>
+<div class="row"><div><label>Shop name</label><input type="text" name="shop_name" value="{{ m.account.shop_name }}"></div><div><label>Reply-to email (notifications come here)</label><input type="email" name="reply_to_email" value="{{ m.account.reply_to_email }}"></div></div>
+<div class="row"><div><label>Phone</label><input type="text" name="phone" value="{{ m.account.phone }}"></div><div><label>Customer response window (days)</label><input type="number" name="default_response_window_days" value="{{ m.account.default_response_window_days }}" min="1" max="60"></div></div>
+<label>Release gate — machine files before approval</label><select name="release_gate_policy"><option value="soft" {% if m.account.release_gate_policy=='soft' %}selected{% endif %}>Soft: downloadable with an unapproved warning (default)</option><option value="hard" {% if m.account.release_gate_policy=='hard' %}selected{% endif %}>Hard: withheld until released</option><option value="off" {% if m.account.release_gate_policy=='off' %}selected{% endif %}>Off: no restriction</option></select>
+<h3 style="margin-top:18px">Approval terms ({{ terms.label }})</h3>
+<p class="stamp">Shown in full above the approve button. Editing creates a new version; approvals already recorded keep the version they were shown.</p>
+<textarea name="terms_body" style="min-height:220px">{{ terms.body }}</textarea>
+<label>Consent text</label><textarea name="consent_text">{{ terms.consent_text }}</textarea>
+<p><button class="btn">Save</button></p>
+</form>
+<div class="card"><h3>Plan</h3><p>{{ 'PiperStitch Proofs (paid)' if ent.proofs_enabled else 'Free: ' ~ (ent.free_proofs_granted - ent.free_proofs_used) ~ ' of ' ~ ent.free_proofs_granted ~ ' free proofs left' }} · {{ ent.seats }} seat(s)</p></div>
+<div class="card"><h3>People</h3><ul>{% for u in members %}<li>{{ u.user.email }} — {{ u.role }}{% if not u.accepted_at %} (invited){% endif %}</li>{% endfor %}</ul>
+<form method="post" action="/settings/invite"><div class="row"><div><label>Invite by email</label><input type="email" name="email" required></div><div><label>Role</label><select name="role"><option value="sales">Sales — create, compose, send, respond</option><option value="stitcher">Stitcher — read, run tickets, mark sewn</option><option value="owner">Owner — everything</option></select></div></div><p><button class="btn secondary">Invite</button></p></form></div>
+{% endblock %}

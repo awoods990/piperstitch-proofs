@@ -1,0 +1,422 @@
+"""The data model -- PRD "Data model", Phase 1 subset, as SQLAlchemy so the
+same code runs on SQLite today and Postgres later (PRD v1.1 change 2).
+
+Every table carries account_id; deletion is `archived_at`; timestamps are
+ISO-8601 UTC strings (SQLite has no timestamptz -- we store text and parse
+on read, which round-trips exactly and sorts correctly).
+
+`proof_event` is append-only. On SQLite that is enforced by triggers that
+abort any UPDATE or DELETE (see `_APPEND_ONLY_TRIGGERS`); on Postgres the
+equivalent is a table grant with no UPDATE/DELETE. Either way the hash
+chain and the certificate carry the evidence independently.
+"""
+
+from __future__ import annotations
+
+import json
+import secrets
+from datetime import datetime, timezone
+from typing import Iterator, Optional
+
+from sqlalchemy import (Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, select, text)  # noqa: F401  (select/text re-exported for callers)
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
+
+from . import config
+
+
+def utcnow() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_ts(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def new_id() -> str:
+    return secrets.token_hex(12)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+# --- identity and access -------------------------------------------------------
+
+class Account(Base):
+    """One embroidery shop. `core_customer_id` is License Admin's customer
+    id -- the account exists in Proofs because that customer signed in."""
+    __tablename__ = "account"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    core_customer_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, nullable=True)
+    shop_name: Mapped[str] = mapped_column(String, default="")
+    reply_to_email: Mapped[str] = mapped_column(String, default="")
+    phone: Mapped[str] = mapped_column(String, default="")
+    brand_color: Mapped[str] = mapped_column(String, default="#2c6e8f")
+    release_gate_policy: Mapped[str] = mapped_column(String, default="soft")  # hard | soft | off
+    units: Mapped[str] = mapped_column(String, default="imperial")
+    default_response_window_days: Mapped[int] = mapped_column(Integer, default=config.DEFAULT_RESPONSE_WINDOW_DAYS)
+    default_revisions_included: Mapped[int] = mapped_column(Integer, default=2)
+    next_reference: Mapped[int] = mapped_column(Integer, default=1000)
+    created_at: Mapped[str] = mapped_column(String, default=utcnow)
+    archived_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    users: Mapped[list["AccountUser"]] = relationship(back_populates="account")
+    entitlements: Mapped[Optional["AccountEntitlements"]] = relationship(back_populates="account", uselist=False)
+
+
+class User(Base):
+    __tablename__ = "user"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(String, unique=True)
+    name: Mapped[str] = mapped_column(String, default="")
+    last_seen_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, default=utcnow)
+    disabled_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+ROLES = ("owner", "sales", "stitcher")
+
+
+class AccountUser(Base):
+    __tablename__ = "account_user"
+    __table_args__ = (UniqueConstraint("account_id", "user_id"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    account_id: Mapped[str] = mapped_column(ForeignKey("account.id"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("user.id"))
+    role: Mapped[str] = mapped_column(String, default="owner")
+    invited_at: Mapped[str] = mapped_column(String, default=utcnow)
+    accepted_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    disabled_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    counts_against_seats: Mapped[bool] = mapped_column(Boolean, default=True)
+    # The License Admin web-session token for an owner, so Proofs can list
+    # and fetch their saved Core projects on their behalf.
+    core_session_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    account: Mapped[Account] = relationship(back_populates="users")
+    user: Mapped[User] = relationship()
+
+
+class AccountEntitlements(Base):
+    __tablename__ = "account_entitlements"
+    account_id: Mapped[str] = mapped_column(ForeignKey("account.id"), primary_key=True)
+    plan_code: Mapped[str] = mapped_column(String, default="free")
+    proofs_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    clients_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    seats: Mapped[int] = mapped_column(Integer, default=1)
+    sms_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    free_proofs_granted: Mapped[int] = mapped_column(Integer, default=config.FREE_PROOFS_GRANTED)
+    free_proofs_used: Mapped[int] = mapped_column(Integer, default=0)
+    trial_ends_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    account: Mapped[Account] = relationship(back_populates="entitlements")
+
+    @property
+    def can_send(self) -> bool:
+        return self.proofs_enabled or self.free_proofs_used < self.free_proofs_granted
+
+
+class SignInCode(Base):
+    """A Proofs-issued email code (invited seat users; owners in dev)."""
+    __tablename__ = "signin_code"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(String, index=True)
+    code_hash: Mapped[str] = mapped_column(String)
+    expires_at: Mapped[str] = mapped_column(String)
+    used_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class WebSession(Base):
+    __tablename__ = "web_session"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    token_hash: Mapped[str] = mapped_column(String, unique=True)
+    account_user_id: Mapped[str] = mapped_column(ForeignKey("account_user.id"))
+    created_at: Mapped[str] = mapped_column(String, default=utcnow)
+    last_seen_at: Mapped[str] = mapped_column(String, default=utcnow)
+    revoked_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    account_user: Mapped[AccountUser] = relationship()
+
+
+# --- the thin shared party record ------------------------------------------------
+
+class Contact(Base):
+    __tablename__ = "contact"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    account_id: Mapped[str] = mapped_column(ForeignKey("account.id"), index=True)
+    display_name: Mapped[str] = mapped_column(String, default="")
+    company_name: Mapped[str] = mapped_column(String, default="")
+    email: Mapped[str] = mapped_column(String, default="")
+    phone: Mapped[str] = mapped_column(String, default="")
+    preferred_channel: Mapped[str] = mapped_column(String, default="email")
+    timezone: Mapped[str] = mapped_column(String, default="America/New_York")
+    sms_opt_in_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    sms_opt_in_text: Mapped[str] = mapped_column(Text, default="")
+    opted_out_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String, default=utcnow)
+    archived_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+# --- core entities ------------------------------------------------------------------
+
+class Proof(Base):
+    __tablename__ = "proof"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    account_id: Mapped[str] = mapped_column(ForeignKey("account.id"), index=True)
+    contact_id: Mapped[str] = mapped_column(ForeignKey("contact.id"))
+    reference: Mapped[str] = mapped_column(String)          # PF-1042
+    title: Mapped[str] = mapped_column(String, default="")
+    # Derived rollup -- see `proofs.rollup_status`; never hand-set.
+    status: Mapped[str] = mapped_column(String, default="draft")
+    current_version_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    core_project_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    core_project_name: Mapped[str] = mapped_column(String, default="")
+    due_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    intake_window_days: Mapped[int] = mapped_column(Integer, default=7)
+    response_window_days: Mapped[int] = mapped_column(Integer, default=config.DEFAULT_RESPONSE_WINDOW_DAYS)
+    revisions_included: Mapped[int] = mapped_column(Integer, default=2)
+    reminders_snoozed_until: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    void_reason: Mapped[str] = mapped_column(Text, default="")
+    released_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    completed_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey("user.id"), nullable=True)
+    created_at: Mapped[str] = mapped_column(String, default=utcnow)
+    updated_at: Mapped[str] = mapped_column(String, default=utcnow)
+    archived_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    contact: Mapped[Contact] = relationship()
+    versions: Mapped[list["ProofVersion"]] = relationship(back_populates="proof", order_by="ProofVersion.version_number")
+
+
+class ProofVersion(Base):
+    """Immutable once sent. Everything the customer consented to is
+    copied here at composition; the Core project can change freely."""
+    __tablename__ = "proof_version"
+    __table_args__ = (UniqueConstraint("proof_id", "version_number"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    proof_id: Mapped[str] = mapped_column(ForeignKey("proof.id"), index=True)
+    version_number: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String, default="ready_to_send")
+    design_hash: Mapped[str] = mapped_column(String, default="")
+    stitch_count: Mapped[int] = mapped_column(Integer, default=0)
+    color_change_count: Mapped[int] = mapped_column(Integer, default=0)
+    trim_count: Mapped[int] = mapped_column(Integer, default=0)
+    width_mm: Mapped[float] = mapped_column(Float, default=0)
+    height_mm: Mapped[float] = mapped_column(Float, default=0)
+    estimated_run_seconds: Mapped[float] = mapped_column(Float, default=0)
+    fabric_code: Mapped[str] = mapped_column(String, default="standard")
+    hoop_code: Mapped[str] = mapped_column(String, default="")
+    stabilizer_advice: Mapped[str] = mapped_column(Text, default="")
+    garment_style_name: Mapped[str] = mapped_column(String, default="")
+    garment_color: Mapped[str] = mapped_column(String, default="")
+    placement_name: Mapped[str] = mapped_column(String, default="")
+    placement_notes: Mapped[str] = mapped_column(Text, default="")
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    size_breakdown_json: Mapped[str] = mapped_column(Text, default="{}")
+    price_line: Mapped[str] = mapped_column(String, default="")
+    terms_version_id: Mapped[Optional[str]] = mapped_column(ForeignKey("terms_version.id"), nullable=True)
+    message_body: Mapped[str] = mapped_column(Text, default="")
+    # The Core document as composed -- the source of the render and of
+    # every machine file, kept so a release can regenerate byte-identical
+    # files and so the hashes can be re-verified.
+    document_json: Mapped[str] = mapped_column(Text, default="")
+    artifact_hashes_json: Mapped[str] = mapped_column(Text, default="{}")
+    composed_by: Mapped[Optional[str]] = mapped_column(ForeignKey("user.id"), nullable=True)
+    composed_at: Mapped[str] = mapped_column(String, default=utcnow)
+    sent_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    response_expires_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    change_summary: Mapped[str] = mapped_column(Text, default="")
+
+    proof: Mapped[Proof] = relationship(back_populates="versions")
+    thread_stops: Mapped[list["ThreadStop"]] = relationship(back_populates="version", order_by="ThreadStop.stop_number")
+    terms_version: Mapped[Optional["TermsVersion"]] = relationship()
+
+    @property
+    def artifact_hashes(self) -> dict:
+        return json.loads(self.artifact_hashes_json or "{}")
+
+    @property
+    def size_breakdown(self) -> dict:
+        return json.loads(self.size_breakdown_json or "{}")
+
+    @property
+    def is_live(self) -> bool:
+        return self.status in ("sent", "viewed", "changes_requested", "approved", "approved_with_notes")
+
+
+class ThreadStop(Base):
+    __tablename__ = "thread_stop"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    proof_version_id: Mapped[str] = mapped_column(ForeignKey("proof_version.id"), index=True)
+    stop_number: Mapped[int] = mapped_column(Integer)
+    thread_brand: Mapped[str] = mapped_column(String, default="")
+    thread_code: Mapped[str] = mapped_column(String, default="")
+    thread_name: Mapped[str] = mapped_column(String, default="")
+    hex: Mapped[str] = mapped_column(String, default="#000000")
+    stitch_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    version: Mapped[ProofVersion] = relationship(back_populates="thread_stops")
+
+
+class TermsVersion(Base):
+    """Never edited; a change creates a new row and becomes current."""
+    __tablename__ = "terms_version"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    account_id: Mapped[str] = mapped_column(ForeignKey("account.id"), index=True)
+    label: Mapped[str] = mapped_column(String, default="v1")
+    body: Mapped[str] = mapped_column(Text, default="")
+    consent_text: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String, default=utcnow)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# --- approval and evidence ---------------------------------------------------------
+
+TOKEN_PURPOSES = ("proof", "certificate", "reconfirm", "intake", "triage_report")
+
+
+class AccessToken(Base):
+    __tablename__ = "access_token"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    account_id: Mapped[str] = mapped_column(ForeignKey("account.id"), index=True)
+    proof_id: Mapped[str] = mapped_column(ForeignKey("proof.id"), index=True)
+    proof_version_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    approval_record_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    contact_id: Mapped[str] = mapped_column(ForeignKey("contact.id"))
+    token_hash: Mapped[str] = mapped_column(String, unique=True)
+    purpose: Mapped[str] = mapped_column(String)
+    version_scope: Mapped[str] = mapped_column(String, default="current")
+    issued_at: Mapped[str] = mapped_column(String, default=utcnow)
+    expires_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    revoked_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    last_used_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+class ProofEvent(Base):
+    """Append-only, hash-chained. See `events.append`."""
+    __tablename__ = "proof_event"
+    __table_args__ = (UniqueConstraint("proof_id", "sequence"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    proof_id: Mapped[str] = mapped_column(ForeignKey("proof.id"), index=True)
+    proof_version_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    event_type: Mapped[str] = mapped_column(String)
+    occurred_at: Mapped[str] = mapped_column(String)
+    local_offset: Mapped[str] = mapped_column(String, default="")
+    time_source: Mapped[str] = mapped_column(String, default="server")
+    actor_type: Mapped[str] = mapped_column(String)  # contact | user | system
+    actor_id: Mapped[str] = mapped_column(String, default="")
+    token_hash: Mapped[str] = mapped_column(String, default="")
+    ip: Mapped[str] = mapped_column(String, default="")
+    user_agent_raw: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    prev_event_hash: Mapped[str] = mapped_column(String, default="")
+    event_hash: Mapped[str] = mapped_column(String)
+
+    @property
+    def payload(self) -> dict:
+        return json.loads(self.payload_json or "{}")
+
+
+class ApprovalRecord(Base):
+    __tablename__ = "approval_record"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    proof_version_id: Mapped[str] = mapped_column(ForeignKey("proof_version.id"), index=True)
+    approved_at: Mapped[str] = mapped_column(String, default=utcnow)
+    method: Mapped[str] = mapped_column(String, default="self_service")  # self_service | on_behalf
+    on_behalf_channel: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    on_behalf_evidence: Mapped[str] = mapped_column(Text, default="")
+    recorded_by_user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    signer_name_typed: Mapped[str] = mapped_column(String, default="")
+    signer_email: Mapped[str] = mapped_column(String, default="")
+    signer_ip: Mapped[str] = mapped_column(String, default="")
+    signer_user_agent: Mapped[str] = mapped_column(Text, default="")
+    terms_version_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    consent_text_rendered: Mapped[str] = mapped_column(Text, default="")
+    terms_body_rendered: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    conditions_snapshot_json: Mapped[str] = mapped_column(Text, default="{}")
+    artifact_hashes_json: Mapped[str] = mapped_column(Text, default="{}")
+    event_chain_head: Mapped[str] = mapped_column(String, default="")
+    certificate_sha256: Mapped[str] = mapped_column(String, default="", index=True)
+    certificate_signature: Mapped[str] = mapped_column(String, default="")
+    certificate_storage_key: Mapped[str] = mapped_column(String, default="")
+
+    @property
+    def conditions_snapshot(self) -> dict:
+        return json.loads(self.conditions_snapshot_json or "{}")
+
+    @property
+    def artifact_hashes(self) -> dict:
+        return json.loads(self.artifact_hashes_json or "{}")
+
+
+class ChangeRequest(Base):
+    __tablename__ = "change_request"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    proof_version_id: Mapped[str] = mapped_column(ForeignKey("proof_version.id"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String, default="freetext")  # pin | chip | freetext | attachment
+    chip_code: Mapped[str] = mapped_column(String, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    pin_x: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    pin_y: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, default=utcnow)
+    status: Mapped[str] = mapped_column(String, default="open")
+    resolution_note: Mapped[str] = mapped_column(Text, default="")
+    resolved_in_version_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+class Message(Base):
+    __tablename__ = "message"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    proof_id: Mapped[str] = mapped_column(ForeignKey("proof.id"), index=True)
+    proof_version_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    direction: Mapped[str] = mapped_column(String)  # inbound (customer) | outbound (shop)
+    author_type: Mapped[str] = mapped_column(String)
+    author_id: Mapped[str] = mapped_column(String, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String, default=utcnow)
+    read_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+# --- engine and sessions ---------------------------------------------------------
+
+_APPEND_ONLY_TRIGGERS = [
+    "CREATE TRIGGER IF NOT EXISTS proof_event_no_update BEFORE UPDATE ON proof_event BEGIN SELECT RAISE(ABORT, 'proof_event is append-only'); END;",
+    "CREATE TRIGGER IF NOT EXISTS proof_event_no_delete BEFORE DELETE ON proof_event BEGIN SELECT RAISE(ABORT, 'proof_event is append-only'); END;",
+    "CREATE TRIGGER IF NOT EXISTS approval_record_no_delete BEFORE DELETE ON approval_record BEGIN SELECT RAISE(ABORT, 'approval_record is retained'); END;",
+]
+
+engine = create_engine(config.DATABASE_URL, connect_args={"check_same_thread": False} if config.DATABASE_URL.startswith("sqlite") else {}, future=True)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+
+if config.DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
+def init_db() -> None:
+    Base.metadata.create_all(engine)
+    if config.DATABASE_URL.startswith("sqlite"):
+        with engine.begin() as connection:
+            for statement in _APPEND_ONLY_TRIGGERS:
+                connection.execute(text(statement))
+
+
+def session() -> Iterator[Session]:
+    """FastAPI dependency: one session per request."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

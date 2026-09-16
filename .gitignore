@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+proofs/proofs.db*
+proofs/artifacts/
+proofs/outbox/
+.pytest_cache/
+.DS_Store

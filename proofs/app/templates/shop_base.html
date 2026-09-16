@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block header %}
+<header class="top"><div class="wrap">
+<a class="brand" href="/proofs">PiperStitch Proofs</a>
+<nav><a href="/proofs">Board</a>{% if m.role != 'stitcher' %}<a href="/proofs/new">New proof</a>{% endif %}{% if m.role == 'owner' %}<a href="/settings">Settings</a>{% endif %}</nav>
+<span class="spacer"></span>
+<span class="stamp">{{ m.user.email }} · {{ m.role }}</span>
+<form method="post" action="/signout"><button class="btn secondary" style="padding:6px 10px;font-size:13px">Sign out</button></form>
+</div></header>
+{% endblock %}

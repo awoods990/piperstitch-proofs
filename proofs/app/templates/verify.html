@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block wrapclass %}narrow{% endblock %}
+{% block content %}
+<div class="card" style="margin-top:40px"><h1>Verify a Certificate of Approval</h1>
+<p class="stamp">Paste the SHA-256 printed on the certificate. Verification passes only if the certificate, the proof PDF and every approved machine file are byte-for-byte unchanged and the evidence chain is intact.</p>
+<form onsubmit="location.href='/verify/'+document.getElementById('h').value.trim();return false"><label>Certificate SHA-256</label><input type="text" id="h" class="mono" required><p><button class="btn">Verify</button></p></form></div>
+{% endblock %}
