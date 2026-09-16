@@ -51,6 +51,9 @@ class LicenseAdminClient:
         return bool(self.base_url and self.api_key)
 
     def _post(self, path: str, body: dict, params: Optional[dict] = None) -> dict:
+        for name in ("WEB_API_KEY", "LICENSE_ADMIN_URL"):
+            if config.bad_ascii(name):
+                raise CoreError("Configuration problem: " + config.bad_ascii(name))
         try:
             r = httpx.post(f"{self.base_url}{path}", json=body, params=params, headers={"X-API-Key": self.api_key}, timeout=30)
         except httpx.HTTPError as e:
@@ -97,6 +100,9 @@ class StitchClient:
         return "/api/v1/internal" if self.api_key else "/api/v1"
 
     def digitize(self, document: dict, hoop_width_mm: Optional[float] = None, hoop_height_mm: Optional[float] = None) -> dict:
+        for name in ("CORE_API_KEY", "CORE_SERVER_URL"):
+            if config.bad_ascii(name):
+                raise CoreError("Configuration problem: " + config.bad_ascii(name))
         body = {"document": document, "hoopWidthMM": hoop_width_mm, "hoopHeightMM": hoop_height_mm}
         try:
             r = httpx.post(f"{self.base_url}{self._prefix()}/digitize", json=body, headers=self._headers(), timeout=300)

@@ -89,8 +89,17 @@ SIGNIN_CODE_TTL_MINUTES = _int("SIGNIN_CODE_TTL_MINUTES", 15)
 REQUIRE_LICENSE_ADMIN_SIGNIN = _bool("REQUIRE_LICENSE_ADMIN_SIGNIN", "true" if LICENSE_ADMIN_URL else "false")
 
 
+def bad_ascii(name: str) -> str:
+    """A header value or URL with a non-ASCII character in it (a '→'
+    copied off a screen, a curly quote) fails deep inside an HTTP call
+    with a UnicodeEncodeError; name the variable instead."""
+    value = os.environ.get(name, "")
+    bad = [ch for ch in value if ord(ch) > 127 or ch in "\r\n\t"]
+    return f"{name} contains {bad[0]!r} -- re-paste it" if bad else ""
+
+
 def require_for_serving() -> list[str]:
-    missing = []
+    missing = [bad for bad in (bad_ascii(n) for n in ("WEB_API_KEY", "CORE_API_KEY", "LICENSE_ADMIN_URL", "CORE_SERVER_URL", "PUBLIC_BASE_URL", "SMTP_HOST")) if bad]
     if not SESSION_SECRET:
         missing.append("SESSION_SECRET")
     if LICENSE_ADMIN_URL and not WEB_API_KEY:
