@@ -303,15 +303,16 @@ def describe_changes(a: ProofVersion, b: ProofVersion) -> str:
     return "; ".join(parts) if parts else "no measurable change"
 
 
-def conditions_snapshot(v: ProofVersion) -> dict:
+def conditions_snapshot(v: ProofVersion, colorway_ordinal: int = 1, stops: Optional[list] = None) -> dict:
+    stops = stops if stops is not None else list(v.thread_stops)
     return {
         "design_hash": v.design_hash, "version": v.version_number, "width_mm": v.width_mm, "height_mm": v.height_mm,
         "stitch_count": v.stitch_count, "garment_style_name": v.garment_style_name, "garment_color": v.garment_color,
         "garment_template": v.garment_template_id, "garment_zone": v.garment_zone,
         "placement_name": v.placement_name, "placement_notes": v.placement_notes, "quantity": v.quantity,
         "placement_offsets_mm": {"down": v.placement_down_mm, "across": v.placement_across_mm},
-        "size_breakdown": v.size_breakdown, "fabric_code": v.fabric_code, "colorway_ordinal": 1,
-        "thread_stops": [f"{s.stop_number}: {s.thread_name} {s.thread_code}".strip() for s in v.thread_stops],
+        "size_breakdown": v.size_breakdown, "fabric_code": v.fabric_code, "colorway_ordinal": colorway_ordinal,
+        "thread_stops": [f"{s.stop_number}: {s.thread_name} {s.thread_code}".strip() for s in stops],
     }
 
 
@@ -459,7 +460,7 @@ def record_view(db: Session, v: ProofVersion, *, token_hash: str, ip: str, user_
 
 def approve(db: Session, v: ProofVersion, *, signer_name: str, signer_email: str, notes: str, token_hash: str, ip: str,
             user_agent: str, local_offset: str = "", method: str = "self_service", on_behalf_channel: Optional[str] = None,
-            on_behalf_evidence: str = "", recorded_by: Optional[User] = None, base_url: str = "") -> ApprovalRecord:
+            on_behalf_evidence: str = "", recorded_by: Optional[User] = None, base_url: str = "", colorway_ordinal: int = 1) -> ApprovalRecord:
     proof = db.get(Proof, v.proof_id)
     account = db.get(Account, proof.account_id)
     contact = db.get(Contact, proof.contact_id)
@@ -475,20 +476,25 @@ def approve(db: Session, v: ProofVersion, *, signer_name: str, signer_email: str
                 raise TransitionError("An older version is still live; send this version first.")
 
     with_notes = bool(notes.strip())
+    from . import colorways as _cw
+    colorway = _cw.colorway_by_ordinal(v, colorway_ordinal) if colorway_ordinal > 1 else None
+    if colorway_ordinal > 1 and colorway is None:
+        raise TransitionError("That colorway doesn't exist on this version.")
+    snapshot = conditions_snapshot(v, colorway_ordinal=colorway_ordinal, stops=_cw.stops_for(db, v, colorway_ordinal))
     v.status = "approved_with_notes" if with_notes else "approved"
     record = ApprovalRecord(
-        proof_version_id=v.id, method=method, on_behalf_channel=on_behalf_channel, on_behalf_evidence=on_behalf_evidence,
+        proof_version_id=v.id, method=method, colorway_id=colorway.id if colorway else None, on_behalf_channel=on_behalf_channel, on_behalf_evidence=on_behalf_evidence,
         recorded_by_user_id=recorded_by.id if recorded_by else None, signer_name_typed=signer_name.strip(), signer_email=signer_email.strip().lower(),
         signer_ip=ip, signer_user_agent=user_agent, terms_version_id=terms.id if terms else None,
         consent_text_rendered=terms.consent_text if terms else texts.CONSENT_TEXT, terms_body_rendered=terms.body if terms else texts.DEFAULT_TERMS,
-        notes=notes.strip(), conditions_snapshot_json=json.dumps(conditions_snapshot(v), sort_keys=True), artifact_hashes_json=v.artifact_hashes_json,
+        notes=notes.strip(), conditions_snapshot_json=json.dumps(snapshot, sort_keys=True), artifact_hashes_json=v.artifact_hashes_json,
     )
     db.add(record)
     db.flush()
     e = events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="approved_with_notes" if with_notes else "approved",
                       actor_type="user" if method == "on_behalf" else "contact", actor_id=(recorded_by.id if recorded_by else proof.contact_id),
                       token_hash=token_hash, ip=ip, user_agent=user_agent, local_offset=local_offset,
-                      payload={"approval_record_id": record.id, "signer_name": record.signer_name_typed, "method": method,
+                      payload={"approval_record_id": record.id, "signer_name": record.signer_name_typed, "method": method, "colorway": colorway_ordinal,
                                "on_behalf_channel": on_behalf_channel, "design_hash": v.design_hash, "artifact_hashes": v.artifact_hashes})
     record.event_chain_head = e.event_hash
 
@@ -497,7 +503,7 @@ def approve(db: Session, v: ProofVersion, *, signer_name: str, signer_email: str
         shop_name=account.shop_name or "Your embroiderer", reference=proof.reference, title=proof.title, version_number=v.version_number,
         approved_at=record.approved_at, method=method, signer_name=record.signer_name_typed, signer_email=record.signer_email,
         signer_ip=ip, signer_user_agent=user_agent, on_behalf=f"{on_behalf_channel or ''} {on_behalf_evidence or ''}".strip(),
-        conditions=conditions_snapshot(v), artifact_hashes=v.artifact_hashes, consent_text=record.consent_text_rendered,
+        conditions=snapshot, artifact_hashes=v.artifact_hashes, consent_text=record.consent_text_rendered,
         terms_body=record.terms_body_rendered, events=[_event_dict(x) for x in events.chain(db, proof.id)], event_chain_head=e.event_hash,
         verify_url=f"{base_url or config.PUBLIC_BASE_URL}/verify", certificate_id=record.id,
     )
@@ -642,6 +648,11 @@ def verify_artifacts(db: Session, v: ProofVersion) -> tuple[bool, list[str]]:
         k = _artifact_key(proof, v.version_number, f"design.{fmt}")
         if not storage.exists(k) or stitch.sha256(storage.get(k)) != h:
             problems.append(f"machine_files.{fmt}")
+    for ordinal, entry in (expected.get("colorways") or {}).items():
+        for name, h in entry.items():
+            k = _artifact_key(proof, v.version_number, f"cw{ordinal}-{name}.png")
+            if not storage.exists(k) or stitch.sha256(storage.get(k)) != h:
+                problems.append(f"colorways.{ordinal}.{name}")
     return (not problems), problems
 
 

@@ -11,12 +11,13 @@
 <tr><td>Approved by</td><td>{{ record.signer_name_typed }} ({{ record.signer_email }})</td></tr>
 <tr><td>When</td><td>{{ record.approved_at|dt }}</td></tr>
 <tr><td>Method</td><td>{{ 'Self-service on the proof page' if record.method == 'self_service' else 'Recorded by the shop on the customer\'s behalf (' ~ record.on_behalf_channel ~ ')' }}</td></tr>
+{% if record.colorway_id %}<tr><td>Colourway</td><td>{{ record.conditions_snapshot.colorway_ordinal }}</td></tr>{% endif %}
 <tr><td>Design fingerprint</td><td class="mono">{{ v.design_hash }}</td></tr>
 <tr><td>Certificate SHA-256</td><td class="mono">{{ record.certificate_sha256 }}</td></tr>
 <tr><td>Event chain head</td><td class="mono">{{ record.event_chain_head }}</td></tr>
 </table>
 <h3 style="margin-top:14px">Approved file hashes</h3>
-<table class="specs">{% for k, val in record.artifact_hashes.items() %}{% if val is mapping %}{% for k2, v2 in val.items() %}<tr><td>{{ k }}.{{ k2 }}</td><td class="mono">{{ v2 }}</td></tr>{% endfor %}{% else %}<tr><td>{{ k }}</td><td class="mono">{{ val }}</td></tr>{% endif %}{% endfor %}</table>
+<table class="specs">{% for k, val in record.artifact_hashes.items() %}{% if val is mapping %}{% for k2, v2 in val.items() %}{% if v2 is mapping %}{% for k3, v3 in v2.items() %}<tr><td>{{ k }}.{{ k2 }}.{{ k3 }}</td><td class="mono">{{ v3 }}</td></tr>{% endfor %}{% else %}<tr><td>{{ k }}.{{ k2 }}</td><td class="mono">{{ v2 }}</td></tr>{% endif %}{% endfor %}{% else %}<tr><td>{{ k }}</td><td class="mono">{{ val }}</td></tr>{% endif %}{% endfor %}</table>
 <p style="margin-top:14px"><a class="btn" href="/c/{{ token }}/certificate.pdf" target="_blank">Download certificate PDF</a> <a class="btn secondary" href="/verify/{{ record.certificate_sha256 }}" target="_blank">Verify (JSON)</a></p>
 <p class="stamp">This link does not expire. Anyone holding the certificate's SHA-256 can verify it at {{ request.base_url }}verify without an account.</p>
 </div>

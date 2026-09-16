@@ -258,7 +258,9 @@ class ProofVersion(Base):
     reviewed_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     proof: Mapped[Proof] = relationship(back_populates="versions")
-    thread_stops: Mapped[list["ThreadStop"]] = relationship(back_populates="version", order_by="ThreadStop.stop_number")
+    thread_stops: Mapped[list["ThreadStop"]] = relationship(back_populates="version", order_by="ThreadStop.stop_number",
+                                                           primaryjoin="and_(ProofVersion.id == ThreadStop.proof_version_id, ThreadStop.colorway_id.is_(None))")
+    colorways: Mapped[list["Colorway"]] = relationship(order_by="Colorway.ordinal")
     terms_version: Mapped[Optional["TermsVersion"]] = relationship()
 
     @property
@@ -274,10 +276,27 @@ class ProofVersion(Base):
         return self.status in ("sent", "viewed", "changes_requested", "approved", "approved_with_notes")
 
 
+class Colorway(Base):
+    """An alternate thread assignment for a version (PRD: up to four,
+    the customer picks one as part of approval). Ordinal 1 is the
+    version's own stops; 2-4 carry their own `ThreadStop` rows."""
+    __tablename__ = "colorway"
+    __table_args__ = (UniqueConstraint("proof_version_id", "ordinal"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    proof_version_id: Mapped[str] = mapped_column(ForeignKey("proof_version.id"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(String, default="")
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[str] = mapped_column(String, default=utcnow)
+
+    stops: Mapped[list["ThreadStop"]] = relationship(primaryjoin="Colorway.id == foreign(ThreadStop.colorway_id)", order_by="ThreadStop.stop_number", viewonly=True)
+
+
 class ThreadStop(Base):
     __tablename__ = "thread_stop"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     proof_version_id: Mapped[str] = mapped_column(ForeignKey("proof_version.id"), index=True)
+    colorway_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)   # NULL = the version's own (colorway 1)
     stop_number: Mapped[int] = mapped_column(Integer)
     thread_brand: Mapped[str] = mapped_column(String, default="")
     thread_code: Mapped[str] = mapped_column(String, default="")
@@ -480,6 +499,7 @@ class ApprovalRecord(Base):
     __tablename__ = "approval_record"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     proof_version_id: Mapped[str] = mapped_column(ForeignKey("proof_version.id"), index=True)
+    colorway_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     approved_at: Mapped[str] = mapped_column(String, default=utcnow)
     method: Mapped[str] = mapped_column(String, default="self_service")  # self_service | on_behalf
     on_behalf_channel: Mapped[Optional[str]] = mapped_column(String, nullable=True)

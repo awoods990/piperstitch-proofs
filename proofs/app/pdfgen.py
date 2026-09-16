@@ -170,12 +170,15 @@ def certificate_pdf(*, shop_name: str, reference: str, title: str, version_numbe
     story.append(t)
     story.append(_p("Artifact hashes (SHA-256)", H2))
     flat: list[list] = []
-    for k, v in artifact_hashes.items():
-        if isinstance(v, dict):
-            for k2, v2 in v.items():
-                flat.append([_p(f"{k}.{k2}", SMALL), _p(v2 or "—", MONO)])
+
+    def walk(prefix: str, value) -> None:
+        if isinstance(value, dict):
+            for k2, v2 in value.items():
+                walk(f"{prefix}.{k2}" if prefix else str(k2), v2)
         else:
-            flat.append([_p(k, SMALL), _p(v or "—", MONO)])
+            flat.append([_p(prefix, SMALL), _p(str(value) if value else "—", MONO)])
+
+    walk("", artifact_hashes)
     t = Table(flat, colWidths=[1.6 * inch, 5.4 * inch])
     story.append(t)
     story.append(_p("Consent as displayed", H2))

@@ -59,6 +59,12 @@ Version 1.1 · September 16, 2026 · Prepared for Ashley Woods · Status: **acce
 >    garment mockup and the placement diagram), alongside `{pdf, render, hero,
 >    social, machine_files}`; `approval_record.artifact_hashes` uses the same set.
 >
+> 10. **Colorways are built in Proofs, not Core** (Phase 2): a colorway is the
+>     version's document re-digitized with swapped thread colours; the design
+>     hash is checked unchanged. Core's own named-colorways panel remains a
+>     later Core hook that would feed the same tables.
+> 11. **Artifact key set** also gains `colorways` (`{ordinal: {render, mockup}}`).
+>
 > Open questions 1–4 in the v1.0 text remain open.
 
 ## Executive summary

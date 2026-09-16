@@ -34,6 +34,13 @@
 {% if v.price_line %}<tr><td>Price</td><td>{{ v.price_line }}</td></tr>{% endif %}
 </table>
 {% if v.artifact_hashes.diagram %}<h3 style="margin-top:14px">Where it goes</h3><div class="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/diagram.png" alt="Placement diagram"></div>{% endif %}
+{% if v.colorways %}<h3 style="margin-top:14px">Choose a colourway</h3>
+<div class="row" id="colorways">
+<label class="cwcard" style="flex:1;min-width:140px;cursor:pointer"><input type="radio" name="cw_pick" value="1" checked onchange="pickCW(1)"><div class="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/render.png" alt=""></div><p class="stamp" style="text-align:center">1. As shown</p></label>
+{% for cw in v.colorways %}<label class="cwcard" style="flex:1;min-width:140px;cursor:pointer"><input type="radio" name="cw_pick" value="{{ cw.ordinal }}" onchange="pickCW({{ cw.ordinal }})"><div class="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/cw{{ cw.ordinal }}-render.png" alt=""></div><p class="stamp" style="text-align:center">{{ cw.ordinal }}. {{ cw.name }}</p></label>{% endfor %}
+</div>
+<script>function pickCW(n){var f=document.querySelector('#approve input[name=colorway]');if(f)f.value=n;}</script>
+{% endif %}
 <h3 style="margin-top:14px">Thread colours, in sewing order</h3>
 <ul class="stops">{% for s in v.thread_stops %}<li><span class="n">{{ s.stop_number }}</span><span class="swatch" style="background:{{ s.hex }}"></span>{{ s.thread_name }}{% if s.thread_code %} <span class="stamp">{{ s.thread_brand }} {{ s.thread_code }}</span>{% endif %}<span class="count">{{ '{:,}'.format(s.stitch_count) }} st</span></li>{% endfor %}</ul>
 {% if v.message_body %}<h3 style="margin-top:14px">From {{ account.shop_name or 'the shop' }}</h3><p>{{ v.message_body }}</p>{% endif %}
@@ -45,7 +52,7 @@
 <h2>Approve this proof</h2>
 <div class="terms">{{ terms.body if terms else '' }}</div>
 <form method="post" action="/p/{{ token }}/approve" onsubmit="document.getElementById('lo').value=new Date().getTimezoneOffset()">
-<input type="hidden" name="local_offset" id="lo">
+<input type="hidden" name="local_offset" id="lo"><input type="hidden" name="colorway" value="1">
 <div class="row"><div><label>Your name</label><input type="text" name="signer_name" required placeholder="Type your full name"></div><div><label>Your email</label><input type="email" name="signer_email" value="{{ contact.email }}"></div></div>
 <label>Notes (optional — anything the shop should know)</label><input type="text" name="notes">
 <label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink2);margin-top:12px"><input type="checkbox" name="consent" value="yes" required style="margin-top:3px"><span>{{ terms.consent_text if terms else '' }}</span></label>

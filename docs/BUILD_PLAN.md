@@ -24,6 +24,10 @@ seat invitations.
 Garment context: 12 drawn templates with true-scale zones, mockup + measured
 placement diagram on the page, the PDF and the run ticket.
 
+Colorways: up to four per version, built by re-digitizing with swapped
+threads (the design hash is unchanged by construction), offered as cards on
+the proof page; the approval records the chosen one.
+
 **Deliberately not yet:** intake links,
 triage, version compare view, colorways, SMS, reminders, sew-out log,
 estimator, thread inventory (Phase 3).

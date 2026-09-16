@@ -36,10 +36,25 @@ class FakeStitchClient:
         self.digitized = json.loads((FIXTURES / "cap_digitize.json").read_text())
         self.files = {fmt: (FIXTURES / f"cap.{fmt}").read_bytes() for fmt in core_client.MACHINE_FORMATS}
         self.calls = 0
+        # Which document object each colour block came from, so a document
+        # with swapped thread colours (a colorway) reports the swapped
+        # colours the way Core would.
+        fixture_doc = json.loads((FIXTURES / "cap_document.json").read_text())
+        def key(c):
+            r = c["rgb"]
+            return (r["r"], r["g"], r["b"])
+        self.block_to_object = []
+        for c in self.digitized["colors"]:
+            idx = next((i for i, o in enumerate(fixture_doc["objects"]) if key(o["threadColor"]) == key(c)), None)
+            self.block_to_object.append(idx)
 
     def digitize(self, document, hoop_width_mm=None, hoop_height_mm=None):
         self.calls += 1
         d = json.loads(json.dumps(self.digitized))
+        objects = document.get("objects") or []
+        for block, idx in enumerate(self.block_to_object):
+            if idx is not None and idx < len(objects) and block < len(d["colors"]):
+                d["colors"][block] = dict(objects[idx]["threadColor"])
         if "v2" in (document.get("name") or ""):
             # Drop the last 200 stitches: a genuinely different design.
             d["plan"]["commands"] = d["plan"]["commands"][:-200] + [[5, 0, 0]]

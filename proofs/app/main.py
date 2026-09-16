@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, billing, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, storage, stitch, texts, tokens
+from . import auth, billing, colorways, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, storage, stitch, texts, tokens
 from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, File, InboundEmail, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
@@ -377,6 +377,19 @@ def approve_on_behalf(request: Request, proof_id: str, signer_name: str = Form("
                    "Approval recorded on the customer's behalf; certificate written.", f"/proofs/{p.id}")
 
 
+@app.post("/proofs/{proof_id}/versions/{version_id}/colorways")
+async def add_colorway(request: Request, proof_id: str, version_id: str, m: AccountUser = Depends(require_can("compose")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    v = db.get(ProofVersion, version_id)
+    if v is None or v.proof_id != p.id:
+        raise HTTPException(404)
+    form = await request.form()
+    stops = []
+    for s in v.thread_stops:
+        stops.append({"hex": str(form.get(f"hex_{s.stop_number}", s.hex)), "name": str(form.get(f"name_{s.stop_number}", "")), "code": str(form.get(f"code_{s.stop_number}", ""))})
+    return _action(request, db, lambda: colorways.add_colorway(db, v, m.user, name=str(form.get("name", "")), stop_colors=stops), "Colorway added: {result.name}", f"/proofs/{p.id}")
+
+
 @app.post("/proofs/{proof_id}/review/request")
 def review_request(request: Request, proof_id: str, m: AccountUser = Depends(require_can("send")), db: Session = Depends(get_db)):
     p = _load_proof(db, m, proof_id)
@@ -557,6 +570,9 @@ def _serve_artifact(p: Proof, v: ProofVersion, artifact: str, *, gate: str = "of
              "social.png": ("social.png", "image/png"), "mockup.png": ("mockup.png", "image/png"), "diagram.png": ("diagram.png", "image/png")}
     for fmt in core_client.MACHINE_FORMATS:
         names[f"design.{fmt}"] = (f"design.{fmt}", "application/octet-stream")
+    for o in range(2, colorways.MAX_COLORWAYS + 1):
+        names[f"cw{o}-render.png"] = (f"cw{o}-render.png", "image/png")
+        names[f"cw{o}-mockup.png"] = (f"cw{o}-mockup.png", "image/png")
     if artifact not in names:
         raise HTTPException(404)
     if artifact.startswith("design.") and gate == "hard" and p.status not in ("released", "completed"):
@@ -679,7 +695,7 @@ def public_artifact(plaintext: str, artifact: str, db: Session = Depends(get_db)
 
 @app.post("/p/{plaintext}/approve")
 def public_approve(request: Request, plaintext: str, signer_name: str = Form(""), signer_email: str = Form(""), notes: str = Form(""),
-                   consent: str = Form(""), local_offset: str = Form(""), db: Session = Depends(get_db)):
+                   consent: str = Form(""), local_offset: str = Form(""), colorway: int = Form(1), db: Session = Depends(get_db)):
     state, v, p = _public_version(db, plaintext)
     if not state.ok or v is None:
         raise HTTPException(404)
@@ -689,7 +705,7 @@ def public_approve(request: Request, plaintext: str, signer_name: str = Form("")
     ip, ua = _client(request)
     try:
         record = proofs.approve(db, v, signer_name=signer_name, signer_email=signer_email or db.get(Contact, p.contact_id).email, notes=notes,
-                                token_hash=state.token.token_hash, ip=ip, user_agent=ua, local_offset=local_offset, base_url=_base_url(request))
+                                token_hash=state.token.token_hash, ip=ip, user_agent=ua, local_offset=local_offset, base_url=_base_url(request), colorway_ordinal=colorway)
         db.commit()
     except proofs.TransitionError as e:
         db.rollback()

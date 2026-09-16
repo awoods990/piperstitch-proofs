@@ -418,3 +418,39 @@ def test_every_garment_template_composes_and_measures(document):
     t = garments.TEMPLATE_BY_ID["polo"]
     assert abs(t.mm_per_px * (930 - 70) - 560) < 1e-6
     assert garments.color_hex("navy") == "#1f2d4d" and garments.color_hex("#ABCDEF") == "#abcdef" and garments.color_hex("nonsense") == "#9b9d9f"
+
+
+def test_colorways_are_offered_and_the_chosen_one_is_on_the_certificate(document, outbox):
+    from app import colorways
+    from app.db import ApprovalRecord as AR
+    c = _client()
+    sign_in(c, "dana-cw@shop.example", outbox)
+    proof_id = create_and_compose(c, document, email="cw@example.com")
+    with database.SessionLocal() as db:
+        v = db.get(ProofVersion, db.get(Proof, proof_id).current_version_id)
+        vid, hash_before = v.id, v.design_hash
+        stops = [s.hex for s in v.thread_stops]
+    # Add "On black": white stays, red becomes gold.
+    r = c.post(f"/proofs/{proof_id}/versions/{vid}/colorways", data={"name": "On black", "hex_1": stops[0], "hex_2": "#e0b332", "name_2": "Madeira 1024", "code_2": "1024"}, follow_redirects=False)
+    assert r.status_code == 303
+    with database.SessionLocal() as db:
+        v = db.get(ProofVersion, vid)
+        assert len(v.colorways) == 1 and v.colorways[0].name == "On black" and v.colorways[0].ordinal == 2
+        assert v.design_hash == hash_before, "a palette change is not a design change"
+        cw_stops = colorways.stops_for(db, v, 2)
+        assert [s.hex for s in cw_stops][1] == "#e0b332" and cw_stops[1].thread_name == "Madeira 1024"
+        assert v.artifact_hashes["colorways"]["2"]["render"] and v.artifact_hashes["colorways"]["2"]["mockup"]
+        assert [s.hex for s in v.thread_stops] == stops, "the version's own stops are untouched"
+    url = send_current(c, proof_id, outbox, "cw@example.com")
+    cust = TestClient(app)
+    page = cust.get(url).text
+    assert "Choose a colourway" in page and "2. On black" in page
+    assert cust.get(url + "/cw2-render.png").status_code == 200
+    cust.post(url + "/approve", data={"signer_name": "C W", "consent": "yes", "colorway": "2"}, follow_redirects=False)
+    with database.SessionLocal() as db:
+        rec = db.execute(database.select(AR).join(ProofVersion).where(ProofVersion.id == vid)).scalar_one()
+        assert rec.colorway_id and rec.conditions_snapshot["colorway_ordinal"] == 2 and any("Madeira 1024" in s for s in rec.conditions_snapshot["thread_stops"])
+    # Colorways can't be added after sending.
+    r = c.post(f"/proofs/{proof_id}/versions/{vid}/colorways", data={"name": "late", "hex_1": stops[0], "hex_2": "#000000"}, follow_redirects=False)
+    with database.SessionLocal() as db:
+        assert len(db.get(ProofVersion, vid).colorways) == 1

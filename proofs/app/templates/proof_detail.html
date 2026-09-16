@@ -44,6 +44,11 @@
 </table>
 <ul class="stops" style="margin-top:8px">{% for s in current.thread_stops %}<li><span class="n">{{ s.stop_number }}</span><span class="swatch" style="background:{{ s.hex }}"></span>{{ s.thread_name }}{% if s.thread_code %} <span class="stamp">{{ s.thread_code }}</span>{% endif %}<span class="count">{{ '{:,}'.format(s.stitch_count) }}</span></li>{% endfor %}</ul>
 </div></div>
+{% if current.colorways %}<div class="row" style="margin-top:8px">{% for cw in current.colorways %}<div style="flex:0 0 160px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/cw{{ cw.ordinal }}-render.png" alt=""></div><p class="stamp" style="text-align:center">{{ cw.ordinal }}. {{ cw.name }}</p></div>{% endfor %}</div>{% endif %}
+{% if current.status == 'ready_to_send' and can('compose') and current.colorways|length < 3 %}
+<details style="margin-top:8px"><summary>Add an alternate colorway</summary><form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/colorways"><label>Name</label><input type="text" name="name" placeholder="On black" required>
+{% for s in current.thread_stops %}<div class="row"><div><label>Stop {{ s.stop_number }} ({{ s.thread_name }})</label><input type="color" name="hex_{{ s.stop_number }}" value="{{ s.hex }}"></div><div><label>Thread name</label><input type="text" name="name_{{ s.stop_number }}" placeholder="Madeira Polyneon 1922"></div><div><label>Code</label><input type="text" name="code_{{ s.stop_number }}"></div></div>{% endfor %}
+<p><button class="btn secondary">Build colorway</button></p></form></details>{% endif %}
 <p style="margin-top:12px"><a class="btn secondary" href="/proofs/{{ p.id }}/versions/{{ current.id }}/proof.pdf" target="_blank">Proof PDF</a>
 {% for fmt in ['dst','pes','exp','jef','vp3'] %}<a class="btn secondary" href="/proofs/{{ p.id }}/versions/{{ current.id }}/design.{{ fmt }}" style="padding:10px 10px">{{ fmt|upper }}</a> {% endfor %}
 <a class="btn secondary" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">Run ticket</a></p>
