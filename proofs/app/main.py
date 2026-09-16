@@ -125,7 +125,12 @@ def _client(request: Request) -> tuple[str, str]:
 
 
 def _base_url(request: Request) -> str:
-    return config.PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+    if config.PUBLIC_BASE_URL:
+        return config.PUBLIC_BASE_URL
+    # Behind Railway's proxy the scheme arrives in X-Forwarded-Proto.
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+    return f"{proto}://{host}"
 
 
 def _load_proof(db: Session, m: AccountUser, proof_id: str) -> Proof:
@@ -232,6 +237,9 @@ def new_proof(request: Request, m: AccountUser = Depends(require_can("create")),
     if not contact_email.strip() and not contact_name.strip():
         request.session["flash_error"] = "Who is this proof for? Add a name or an email."
         return RedirectResponse("/proofs/new", status_code=303)
+    if not (title.strip() or core_project_name.strip()):
+        request.session["flash_error"] = "Give the job a title the customer will recognise, e.g. “Left chest logo — 24 polos”."
+        return RedirectResponse("/proofs/new", status_code=303)
     contact = proofs.find_or_create_contact(db, m.account, display_name=contact_name, email=contact_email, company_name=contact_company, phone=contact_phone)
     p = proofs.create_proof(db, m.account, m.user, contact=contact, title=title or core_project_name or "Untitled",
                             core_project_id=core_project_id or None, core_project_name=core_project_name, due_date=due_date or None)
@@ -274,8 +282,15 @@ def compose_form(request: Request, proof_id: str, m: AccountUser = Depends(requi
         except core_client.CoreError as e:
             project_error = str(e)
     previous = db.get(ProofVersion, p.current_version_id) if p.current_version_id else None
+    projects = []
+    if m.core_session_token and core_client.license_admin.configured:
+        try:
+            projects = core_client.license_admin.list_projects(m.core_session_token)
+        except core_client.CoreError as e:
+            project_error = project_error or str(e)
+    files = list(db.execute(select(File).where(File.proof_id == p.id, File.kind == "artwork").order_by(File.uploaded_at)).scalars())
     return templates.TemplateResponse(request, "compose.html", {"m": m, "p": p, "project": project, "project_error": project_error, "previous": previous,
-                                                                 "error": request.session.pop("flash_error", None)})
+                                                                 "projects": projects, "files": files, "error": request.session.pop("flash_error", None)})
 
 
 @app.post("/proofs/{proof_id}/compose")
@@ -283,6 +298,11 @@ async def compose(request: Request, proof_id: str, m: AccountUser = Depends(requ
     p = _load_proof(db, m, proof_id)
     form = await request.form()
     document: Optional[dict] = None
+    chosen = str(form.get("core_project_id", "")).strip()
+    if chosen and chosen != (p.core_project_id or ""):
+        proofs.link_project(db, p, m.user, core_project_id=chosen, core_project_name=str(form.get("core_project_name", "")))
+        if not p.title or p.title == "Untitled":
+            p.title = str(form.get("core_project_name", "")) or p.title
     upload = form.get("document_file")
     if upload is not None and getattr(upload, "filename", ""):
         try:
@@ -334,6 +354,23 @@ def _mm(value, units) -> float:
     return v * 25.4 if (units or "in") == "in" else v
 
 
+def _send_action(request: Request, db: Session, fn, ok_message: str, back: str, *, to: str):
+    """Like `_action` for operations that end in an email: the state change
+    stands even when the transport refuses the message, and the page says so."""
+    try:
+        url = fn()
+        db.commit()
+        request.session["flash"] = ok_message.format(to=to)
+    except proofs.EmailFailed as e:
+        db.commit()
+        request.session["flash_error"] = (f"The link is live, but the email to {to} could not be sent -- check the email settings. "
+                                          f"You can send it yourself: {e}")
+    except (proofs.TransitionError, auth.AuthError, core_client.CoreError) as e:
+        db.rollback()
+        request.session["flash_error"] = str(e)
+    return RedirectResponse(back, status_code=303)
+
+
 def _action(request: Request, db: Session, fn, ok_message: str, back: str):
     try:
         result = fn()
@@ -354,7 +391,7 @@ def send(request: Request, proof_id: str, version_id: str, m: AccountUser = Depe
     try:
         url = proofs.send_version(db, v, m.user, base_url=_base_url(request))
         db.commit()
-        request.session["flash"] = f"Sent. Customer link: {url}"
+        request.session["flash"] = f"Sent to {p.contact.email}."
     except proofs.EmailFailed as e:
         db.commit()   # the send stands; only the email failed
         request.session["flash_error"] = (f"The version is sent and the link is live, but the email could not be sent -- check the SMTP settings "
@@ -371,7 +408,7 @@ def resend(request: Request, proof_id: str, version_id: str, m: AccountUser = De
     v = db.get(ProofVersion, version_id)
     if v is None or v.proof_id != p.id:
         raise HTTPException(404)
-    return _action(request, db, lambda: proofs.resend(db, v, m.user, base_url=_base_url(request)), "New link sent: {result}", f"/proofs/{p.id}")
+    return _send_action(request, db, lambda: proofs.resend(db, v, m.user, base_url=_base_url(request)), "New link sent to {to}.", f"/proofs/{p.id}", to=p.contact.email)
 
 
 @app.post("/proofs/{proof_id}/release")
@@ -558,7 +595,7 @@ def snooze(request: Request, proof_id: str, days: int = Form(3), m: AccountUser 
 @app.post("/proofs/{proof_id}/intake/send")
 def send_intake(request: Request, proof_id: str, message: str = Form(""), m: AccountUser = Depends(require_can("send")), db: Session = Depends(get_db)):
     p = _load_proof(db, m, proof_id)
-    return _action(request, db, lambda: intake.send_intake(db, p, m.user, base_url=_base_url(request), message=message), "Intake link sent: {result}", f"/proofs/{p.id}")
+    return _send_action(request, db, lambda: intake.send_intake(db, p, m.user, base_url=_base_url(request), message=message), "Artwork request sent to {to}.", f"/proofs/{p.id}", to=p.contact.email)
 
 
 @app.post("/proofs/{proof_id}/intake/upload")
@@ -688,7 +725,7 @@ def settings_save(request: Request, m: AccountUser = Depends(require_can("settin
     a.release_gate_policy = release_gate_policy if release_gate_policy in ("hard", "soft", "off") else "soft"
     a.default_response_window_days = max(1, min(60, default_response_window_days))
     current = proofs.current_terms(db, a)
-    if terms_body.strip() != current.body.strip() or consent_text.strip() != current.consent_text.strip():
+    if terms_body.strip() and consent_text.strip() and (terms_body.strip() != current.body.strip() or consent_text.strip() != current.consent_text.strip()):
         return _action(request, db, lambda: proofs.set_terms(db, a, body=terms_body.strip(), consent_text=consent_text.strip()), "Settings saved; terms are now {result.label}.", "/settings")
     db.commit()
     request.session["flash"] = "Settings saved."

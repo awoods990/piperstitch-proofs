@@ -15,7 +15,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import config, core_client, emailer, events, garments, pdfgen, stitch, storage, texts, tokens
+from . import config, core_client, emailer, events, garments, mails, pdfgen, stitch, storage, texts, tokens
 from .db import (Account, AccountEntitlements, AccountUser, ApprovalRecord, ChangeRequest, Contact, Message, Proof, ProofVersion,
                  TermsVersion, ThreadStop, User, parse_ts, utcnow)
 
@@ -396,6 +396,12 @@ def record_bounce(db: Session, *, email: str, reason: str) -> int:
 
 # --- send ---------------------------------------------------------------------------
 
+def require_shop_name(account: Account) -> None:
+    """Every customer-facing email is from the shop, by name. No name, no send."""
+    if not (account.shop_name or "").strip():
+        raise TransitionError("Set your shop name in Settings first -- it's what your customer sees this coming from.")
+
+
 def send_version(db: Session, v: ProofVersion, user: Optional[User], *, base_url: str = "") -> str:
     """Sends version N: supersedes every earlier live version and revokes
     its tokens in the same transaction, mints the customer's link, emails
@@ -403,6 +409,7 @@ def send_version(db: Session, v: ProofVersion, user: Optional[User], *, base_url
     proof = db.get(Proof, v.proof_id)
     account = db.get(Account, proof.account_id)
     contact = db.get(Contact, proof.contact_id)
+    require_shop_name(account)
     if proof.status in PROOF_TERMINAL:
         raise TransitionError("This proof is closed.")
     if proof.status == "internal_review":
@@ -440,13 +447,9 @@ def send_version(db: Session, v: ProofVersion, user: Optional[User], *, base_url
                   actor_id=user.id if user else "", token_hash=_t.token_hash, payload={"to": contact.email, "expires_at": v.response_expires_at})
     _refresh(db, proof)
 
-    shop = account.shop_name or "Your embroiderer"
-    subject = f"{shop}: your embroidery proof {proof.reference} is ready"
-    body = (f"Hi {contact.display_name or 'there'},\n\n{shop} has a proof ready for you: {proof.title}.\n\n"
-            f"Open it here (no account needed):\n{url}\n\n"
-            + (f"Note from the shop: {v.message_body}\n\n" if v.message_body else "")
-            + f"Please approve or request changes by {v.response_expires_at[:10]}.\n\nThank you,\n{shop}")
-    ok = emailer.send(to_email=contact.email, subject=subject, text=body, reply_to=account.reply_to_email)
+    shop = account.shop_name
+    subject, body, html = mails.proof_ready(account, contact, proof, url, version=v.version_number, note=v.message_body, respond_by=v.response_expires_at[:10])
+    ok = emailer.send(to_email=contact.email, subject=subject, text=body, html=html, reply_to=account.reply_to_email)
     events.append(db, proof_id=proof.id, proof_version_id=v.id, event_type="delivered" if ok else "bounced", actor_type="system",
                   payload={"channel": "email", "to": contact.email})
     from . import sms
@@ -528,11 +531,8 @@ def approve(db: Session, v: ProofVersion, *, signer_name: str, signer_email: str
     cert_url = f"{base_url or config.PUBLIC_BASE_URL}/c/{plaintext}"
     to = record.signer_email or contact.email
     if to:
-        emailer.send(to_email=to, subject=f"{shop}: approval recorded for {proof.reference}",
-                     text=(f"Thank you. Your approval of {proof.title} (version {v.version_number}) was recorded {record.approved_at}.\n\n"
-                           f"Your Certificate of Approval, with the exact approved file hashes:\n{cert_url}\n\n"
-                           f"This link does not expire. Certificate SHA-256: {record.certificate_sha256}\n\n{shop}"),
-                     reply_to=account.reply_to_email)
+        subject, text, html = mails.approved(account, contact, proof, cert_url, version=v.version_number, approved_at=record.approved_at, sha=record.certificate_sha256)
+        emailer.send(to_email=to, subject=subject, text=text, html=html, reply_to=account.reply_to_email)
     if account.reply_to_email:
         emailer.send(to_email=account.reply_to_email, subject=f"Approved: {proof.reference} {proof.title} (v{v.version_number})",
                      text=f"{record.signer_name_typed} approved version {v.version_number}{' with notes: ' + record.notes if record.notes else ''}.\n\nRelease it to production from the pipeline board.")
@@ -636,9 +636,9 @@ def resend(db: Session, v: ProofVersion, user: Optional[User], *, base_url: str 
                   actor_id=user.id if user else "", token_hash=t.token_hash)
     _refresh(db, proof)
     url = f"{base_url or config.PUBLIC_BASE_URL}/p/{plaintext}"
-    shop = account.shop_name or "Your embroiderer"
-    emailer.send(to_email=contact.email, subject=f"{shop}: your proof {proof.reference} — new link",
-                 text=f"Here is a fresh link to your proof {proof.title}:\n{url}\n\n{shop}", reply_to=account.reply_to_email)
+    subject, text, html = mails.proof_resend(account, contact, proof, url)
+    if not emailer.send(to_email=contact.email, subject=subject, text=text, html=html, reply_to=account.reply_to_email):
+        raise EmailFailed(url)
     return url
 
 

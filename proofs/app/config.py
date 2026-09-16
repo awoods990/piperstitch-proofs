@@ -32,6 +32,9 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "") or f"sqlite:///{DATABASE_PATH}
 # lock is the production target (PRD v1.1 change 2).
 ARTIFACT_DIR = os.environ.get("ARTIFACT_DIR", "./artifacts")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8100").rstrip("/")
+if "<" in PUBLIC_BASE_URL or " " in PUBLIC_BASE_URL or not PUBLIC_BASE_URL.startswith("http"):
+    # A placeholder pasted into Railway must never end up in a customer's link.
+    PUBLIC_BASE_URL = ""
 
 # --- sessions ---------------------------------------------------------------
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "")

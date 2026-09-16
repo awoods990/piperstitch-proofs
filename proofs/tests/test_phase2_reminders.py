@@ -161,7 +161,7 @@ def test_intake_cadence_nudges_for_artwork(outbox):
         db.commit()
         assert len([x for x in _sent_reminders(db, pid) if x.status == "sent"]) == 1
     mail = outbox.latest_to("lee@example.com")
-    assert mail and "still need your artwork" in mail["subject"] and "/i/" in mail["text"]
+    assert mail and "need your artwork" in mail["subject"].lower() and "/i/" in mail["text"]
 
 
 def test_internal_review_needs_a_second_person_and_a_bounce_raises_a_banner(document, outbox):

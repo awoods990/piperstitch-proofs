@@ -132,7 +132,7 @@ def _ensure_owner(db: Session, *, email: str, name: str, core_customer_id: Optio
     if core_customer_id is not None:
         account = db.execute(select(Account).where(Account.core_customer_id == core_customer_id)).scalar_one_or_none()
     if account is None:
-        account = Account(core_customer_id=core_customer_id, shop_name=name or "", reply_to_email=email)
+        account = Account(core_customer_id=core_customer_id, shop_name="", reply_to_email=email)
         db.add(account)
         db.flush()
     member = AccountUser(account_id=account.id, user_id=user.id, role="owner", accepted_at=utcnow())

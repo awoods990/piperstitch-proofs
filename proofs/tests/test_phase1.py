@@ -44,6 +44,10 @@ def sign_in(c: TestClient, email: str, outbox) -> None:
     code = re.search(r"code is (\d{6})", mail["text"]).group(1)
     r = c.post("/signin/verify", data={"email": email, "code": code}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/proofs"
+    # A shop can't send anything until it has a name (owners only).
+    if "set your shop name" in c.get("/proofs").text:
+        c.post("/settings", data={"shop_name": "Sandpiper Stitchworks", "reply_to_email": email, "release_gate_policy": "soft",
+                                  "default_response_window_days": "7", "terms_body": "", "consent_text": ""}, follow_redirects=False)
 
 
 def create_and_compose(c: TestClient, document: dict, *, title="Left chest logo", email="marcus@example.com", name="Marcus Lee", **compose) -> str:

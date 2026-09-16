@@ -3,9 +3,13 @@
 <h1>{{ p.reference }} · {{ p.title }} — compose {% if previous %}version {{ previous.version_number + 1 }}{% else %}version 1{% endif %}</h1>
 <form method="post" action="/proofs/{{ p.id }}/compose" enctype="multipart/form-data" class="card">
 <h3>Design</h3>
-{% if project %}<p>From your PiperStitch project <b>{{ project.name }}</b>. Upload a file below only to use a different design.</p>
-{% elif p.core_project_id %}<p class="stamp">Linked to PiperStitch project {{ p.core_project_name or p.core_project_id }}{% if project_error %} — couldn't fetch it: {{ project_error }}{% endif %}.</p>{% endif %}
-<label>PiperStitch project file (.stitchpilot){% if project %} — optional{% endif %}</label><input type="file" name="document_file" accept=".stitchpilot,.json,application/json">
+{% if files %}<p>Artwork on this proof: {% for f in files %}<a href="/proofs/{{ p.id }}/files/{{ f.id }}">{{ f.original_filename }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+<p class="stamp">A proof is built from the <b>digitized</b> design, not the raw artwork. If you haven't yet: open PiperStitch, import that file, check the stitches, and save it as a project — then pick the project here.</p>{% endif %}
+{% if project %}<p>From your PiperStitch project <b>{{ project.name }}</b>.</p>
+{% elif p.core_project_id and project_error %}<p class="stamp">Linked to PiperStitch project {{ p.core_project_name or p.core_project_id }} — couldn't fetch it: {{ project_error }}.</p>{% endif %}
+{% if projects %}<label>Saved PiperStitch project</label><select name="core_project_id" onchange="var o=this.options[this.selectedIndex];document.querySelector('[name=core_project_name]').value=o.dataset.name||''"><option value="">— choose —</option>{% for pr in projects %}<option value="{{ pr.id }}" data-name="{{ pr.name }}" {% if pr.id == p.core_project_id %}selected{% endif %}>{{ pr.name }}{% if pr.widthMM %} · {{ '%.0f'|format(pr.widthMM) }}×{{ '%.0f'|format(pr.heightMM) }} mm{% endif %}</option>{% endfor %}</select><input type="hidden" name="core_project_name" value="{{ p.core_project_name }}">
+{% elif project_error and not p.core_project_id %}<p class="stamp">Couldn't list your PiperStitch projects: {{ project_error }}</p>{% endif %}
+<label>Or upload a PiperStitch project file (.stitchpilot)</label><input type="file" name="document_file" accept=".stitchpilot,.json,application/json">
 <h3 style="margin-top:18px">What is being approved</h3>
 <div class="row"><div><label>Garment type (for the mockup)</label><select name="garment_template_id" id="tpl" onchange="zones()"><option value="">— no mockup, just the stitch render —</option>{% for t in GARMENT_TEMPLATES %}<option value="{{ t.id }}" data-zones='{{ t.zones|map(attribute="id")|list|tojson }}' data-labels='{{ t.zones|map(attribute="label")|list|tojson }}' {% if previous and previous.garment_template_id == t.id %}selected{% endif %}>{{ t.name }}</option>{% endfor %}</select></div>
 <div><label>Garment colour</label><select name="garment_color">{% for name, hex in GARMENT_COLORS %}<option value="{{ name }}" {% if previous and previous.garment_color == name %}selected{% elif not previous and name == 'Navy' %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div></div>

@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import config, emailer, events
+from . import config, emailer, events, mails
 from .db import Account, Contact, Proof, ProofVersion, ReminderSchedule, ReminderSend, parse_ts, utcnow
 
 DEFAULT_CADENCES = {
@@ -160,21 +160,15 @@ def _deliver(db: Session, step: ReminderSchedule, proof: Proof, account: Account
     if live:
         live.revoked_at = utcnow()
     plaintext, _t = _tokens.mint(db, account_id=account.id, proof_id=proof.id, contact_id=contact.id, purpose=purpose, proof_version_id=version_id)
-    if cadence == "intake":
-        url = f"{base_url or config.PUBLIC_BASE_URL}/i/{plaintext}"
-        text = f"Hi {contact.display_name or 'there'},\n\nJust a nudge — {shop} is waiting on your artwork for {proof.title} before work can start.\n\nUpload here:\n{url}\n\n{shop}"
-        subject = f"{shop}: still need your artwork for {proof.title}"
-    else:
-        url = f"{base_url or config.PUBLIC_BASE_URL}/p/{plaintext}"
-        text = f"Hi {contact.display_name or 'there'},\n\nYour proof for {proof.title} is waiting for a yes (or changes). It takes a minute on your phone:\n{url}\n\nNothing gets sewn until you approve.\n\n{shop}"
-        subject = f"{shop}: your proof {proof.reference} is waiting"
+    url = f"{base_url or config.PUBLIC_BASE_URL}/{'i' if cadence == 'intake' else 'p'}/{plaintext}"
+    subject, text, html = mails.reminder(account, contact, proof, url, cadence=cadence)
     if step.channel == "sms":
         from . import sms as _sms
         short = (f"{shop}: still waiting on your artwork for {proof.title}: {url}" if cadence == "intake"
                  else f"{shop}: your proof {proof.reference} is waiting for approval: {url}") + " Reply STOP to opt out."
         ok = _sms.send(db, account, contact, short, proof=proof, kind="reminder")
     else:
-        ok = emailer.send(to_email=contact.email, subject=subject, text=text, reply_to=account.reply_to_email)
+        ok = emailer.send(to_email=contact.email, subject=subject, text=text, html=html, reply_to=account.reply_to_email)
     events.append(db, proof_id=proof.id, proof_version_id=version_id if cadence != "intake" else None, event_type="reminder_sent", actor_type="system",
                   payload={"cadence": cadence, "step": step.step_index, "channel": step.channel, "ok": ok})
     return ok

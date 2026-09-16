@@ -18,7 +18,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import config, emailer, events, proofs, storage, tokens, triage
+from . import config, emailer, events, mails, proofs, storage, tokens, triage
 from .db import Account, Contact, File, IntakeAnswer, Proof, TriageFinding, TriageReport, User, parse_ts, utcnow
 
 MAX_FILE_BYTES = 400 * 1024 * 1024
@@ -42,6 +42,7 @@ def send_intake(db: Session, proof: Proof, user: Optional[User], *, base_url: st
     contact = db.get(Contact, proof.contact_id)
     if proof.status in proofs.PROOF_TERMINAL:
         raise proofs.TransitionError("This proof is closed.")
+    proofs.require_shop_name(account)
     if not contact.email:
         raise proofs.TransitionError("The customer needs an email address for an intake link.")
     tokens.revoke_for_proof(db, proof.id, purposes=("intake",))
@@ -53,11 +54,9 @@ def send_intake(db: Session, proof: Proof, user: Optional[User], *, base_url: st
                   token_hash=t.token_hash, payload={"to": contact.email, "expires_at": t.expires_at})
     proof.updated_at = utcnow()
     url = f"{base_url or config.PUBLIC_BASE_URL}/i/{plaintext}"
-    shop = account.shop_name or "Your embroiderer"
-    emailer.send(to_email=contact.email, subject=f"{shop}: send us your artwork for {proof.title}",
-                 text=(f"Hi {contact.display_name or 'there'},\n\n{shop} needs your artwork and a few details to get started on {proof.title}.\n\n"
-                       f"Upload here (no account needed):\n{url}\n\n" + (f"{message.strip()}\n\n" if message.strip() else "")
-                       + f"The link works until {t.expires_at[:10]}.\n\nThank you,\n{shop}"), reply_to=account.reply_to_email)
+    subject, text, html = mails.intake_request(account, contact, proof, url, note=message, expires=t.expires_at[:10])
+    if not emailer.send(to_email=contact.email, subject=subject, text=text, html=html, reply_to=account.reply_to_email):
+        raise proofs.EmailFailed(url)
     return url
 
 
