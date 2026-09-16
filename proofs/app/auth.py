@@ -138,6 +138,8 @@ def _ensure_owner(db: Session, *, email: str, name: str, core_customer_id: Optio
     member = AccountUser(account_id=account.id, user_id=user.id, role="owner", accepted_at=utcnow())
     db.add(member)
     db.flush()
+    from . import reminders
+    reminders.seed_defaults(db, account)
     return member
 
 

@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, core_client, db as database, events, garments, intake, pdfgen, proofs, storage, stitch, texts, tokens
+from . import auth, config, core_client, db as database, events, garments, intake, pdfgen, proofs, reminders, storage, stitch, texts, tokens
 from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, File, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
@@ -44,9 +44,10 @@ async def _scheduler():
         try:
             with database.SessionLocal() as db:
                 n = proofs.expire_due(db) + intake.expire_intakes(db)
+                r = reminders.run_due(db)
                 db.commit()
-                if n:
-                    log.info("Expired %d proof version(s)/intake(s)", n)
+                if n or r["sent"]:
+                    log.info("Expired %d; reminders sent %d, suppressed %d", n, r["sent"], r["suppressed"])
         except Exception as e:  # noqa: BLE001
             log.exception("scheduler: %s", e)
         await asyncio.sleep(600)
@@ -373,6 +374,12 @@ def approve_on_behalf(request: Request, proof_id: str, signer_name: str = Form("
                    "Approval recorded on the customer's behalf; certificate written.", f"/proofs/{p.id}")
 
 
+@app.post("/proofs/{proof_id}/snooze")
+def snooze(request: Request, proof_id: str, days: int = Form(3), m: AccountUser = Depends(require_can("send")), db: Session = Depends(get_db)):
+    p = _load_proof(db, m, proof_id)
+    return _action(request, db, lambda: reminders.snooze(p, max(1, min(30, days))), "Reminders snoozed.", f"/proofs/{p.id}")
+
+
 @app.post("/proofs/{proof_id}/intake/send")
 def send_intake(request: Request, proof_id: str, message: str = Form(""), m: AccountUser = Depends(require_can("send")), db: Session = Depends(get_db)):
     p = _load_proof(db, m, proof_id)
@@ -494,9 +501,12 @@ def settings_form(request: Request, m: AccountUser = Depends(require_can("settin
 @app.post("/settings")
 def settings_save(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db),
                   shop_name: str = Form(""), reply_to_email: str = Form(""), phone: str = Form(""), release_gate_policy: str = Form("soft"),
-                  default_response_window_days: int = Form(7), terms_body: str = Form(""), consent_text: str = Form("")):
+                  default_response_window_days: int = Form(7), terms_body: str = Form(""), consent_text: str = Form(""),
+                  quiet_hours_start: int = Form(20), quiet_hours_end: int = Form(8), reminders_enabled: str = Form("yes")):
     a = m.account
     a.shop_name, a.reply_to_email, a.phone = shop_name.strip(), reply_to_email.strip(), phone.strip()
+    a.quiet_hours_start, a.quiet_hours_end = max(0, min(23, quiet_hours_start)), max(0, min(23, quiet_hours_end))
+    a.reminders_enabled = reminders_enabled == "yes"
     a.release_gate_policy = release_gate_policy if release_gate_policy in ("hard", "soft", "off") else "soft"
     a.default_response_window_days = max(1, min(60, default_response_window_days))
     current = proofs.current_terms(db, a)

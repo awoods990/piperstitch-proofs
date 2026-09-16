@@ -51,7 +51,8 @@
 
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
 {% if current.status == 'ready_to_send' and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/send"><button class="btn">Send to {{ p.contact.email or 'customer' }}</button></form>{% endif %}
-{% if current.status in ('sent','viewed','changes_requested','expired','declined') and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn secondary">Resend link</button></form>{% endif %}
+{% if current.status in ('sent','viewed','changes_requested','expired','declined') and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn secondary">Resend link</button></form>
+<form method="post" action="/proofs/{{ p.id }}/snooze"><input type="hidden" name="days" value="3"><button class="btn secondary" title="No reminders to the customer for 3 days">Snooze reminders</button></form>{% endif %}
 {% if current.status in ('changes_requested','expired','declined','approved','approved_with_notes','sent','viewed') and p.status not in ('released','completed','void') and can('compose') %}<a class="btn secondary" href="/proofs/{{ p.id }}/compose">Compose version {{ current.version_number + 1 }}</a>{% endif %}
 {% if current.status in ('approved','approved_with_notes') and p.status not in ('released','completed') and can('release') %}<form method="post" action="/proofs/{{ p.id }}/release"><button class="btn">Release to production</button></form>{% endif %}
 {% if p.status == 'released' and can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn">Mark sewn</button></form>{% endif %}

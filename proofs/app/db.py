@@ -58,6 +58,9 @@ class Account(Base):
     units: Mapped[str] = mapped_column(String, default="imperial")
     default_response_window_days: Mapped[int] = mapped_column(Integer, default=config.DEFAULT_RESPONSE_WINDOW_DAYS)
     default_revisions_included: Mapped[int] = mapped_column(Integer, default=2)
+    quiet_hours_start: Mapped[int] = mapped_column(Integer, default=20)   # local hour, inclusive
+    quiet_hours_end: Mapped[int] = mapped_column(Integer, default=8)      # local hour, exclusive
+    reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     next_reference: Mapped[int] = mapped_column(Integer, default=1000)
     created_at: Mapped[str] = mapped_column(String, default=utcnow)
     archived_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -351,6 +354,38 @@ class IntakeAnswer(Base):
     field: Mapped[str] = mapped_column(String)
     value: Mapped[str] = mapped_column(Text, default="")
     submitted_at: Mapped[str] = mapped_column(String, default=utcnow)
+
+
+# --- the chase engine ------------------------------------------------------------------
+
+class ReminderSchedule(Base):
+    """One step of a cadence. account default rows have proof_id NULL;
+    a proof can carry its own overrides."""
+    __tablename__ = "reminder_schedule"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    account_id: Mapped[str] = mapped_column(ForeignKey("account.id"), index=True)
+    proof_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    cadence: Mapped[str] = mapped_column(String)          # intake | response
+    step_index: Mapped[int] = mapped_column(Integer)
+    offset_hours: Mapped[int] = mapped_column(Integer)
+    channel: Mapped[str] = mapped_column(String, default="email")   # email | sms | task
+    condition: Mapped[str] = mapped_column(String, default="always")  # always | not_opened | opened_no_response
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class ReminderSend(Base):
+    __tablename__ = "reminder_send"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    reminder_schedule_id: Mapped[str] = mapped_column(String)
+    proof_id: Mapped[str] = mapped_column(ForeignKey("proof.id"), index=True)
+    proof_version_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    channel: Mapped[str] = mapped_column(String)
+    to_address: Mapped[str] = mapped_column(String, default="")
+    status: Mapped[str] = mapped_column(String, default="queued")   # sent | suppressed | failed
+    suppressed_reason: Mapped[str] = mapped_column(String, default="")
+    scheduled_for: Mapped[str] = mapped_column(String)
+    sent_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    failed_reason: Mapped[str] = mapped_column(String, default="")
 
 
 # --- approval and evidence ---------------------------------------------------------
