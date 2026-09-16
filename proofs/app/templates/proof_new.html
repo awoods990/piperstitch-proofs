@@ -1,17 +1,37 @@
 {% extends "shop_base.html" %}
+{% set nav = 'new' %}
+{% block wrapclass %}narrow{% endblock %}
 {% block content %}
-<h1>New proof</h1>
-<form method="post" action="/proofs/new" class="card">
-<h3>Who is it for?</h3>
-{% if contacts %}<label>Existing customer</label><select onchange="var o=this.options[this.selectedIndex];if(o.value){document.querySelector('[name=contact_name]').value=o.dataset.name;document.querySelector('[name=contact_email]').value=o.value;document.querySelector('[name=contact_company]').value=o.dataset.company}"><option value="">— pick or type below —</option>{% for c in contacts %}<option value="{{ c.email }}" data-name="{{ c.display_name }}" data-company="{{ c.company_name }}">{{ c.display_name or c.email }}{% if c.company_name %} · {{ c.company_name }}{% endif %}</option>{% endfor %}</select>{% endif %}
-<div class="row"><div><label>Name</label><input type="text" name="contact_name" placeholder="Marcus Lee"></div><div><label>Email</label><input type="email" name="contact_email" placeholder="marcus@example.com"></div></div>
-<div class="row"><div><label>Company (optional)</label><input type="text" name="contact_company"></div><div><label>Phone (optional)</label><input type="text" name="contact_phone"></div></div>
-<h3 style="margin-top:18px">The design</h3>
-{% if projects %}<label>Saved PiperStitch project</label><select name="core_project_id" onchange="var o=this.options[this.selectedIndex];document.querySelector('[name=core_project_name]').value=o.dataset.name||'';if(!document.querySelector('[name=title]').value)document.querySelector('[name=title]').value=o.dataset.name||''"><option value="">— none yet (upload a file when composing) —</option>{% for pr in projects %}<option value="{{ pr.id }}" data-name="{{ pr.name }}">{{ pr.name }}{% if pr.widthMM %} · {{ '%.0f'|format(pr.widthMM) }}×{{ '%.0f'|format(pr.heightMM) }} mm{% endif %}</option>{% endfor %}</select>
-{% elif project_error %}<p class="stamp">Couldn't list your PiperStitch projects: {{ project_error }}. You can upload a .stitchpilot file when composing.</p>
-{% else %}<p class="stamp">You can pick a saved PiperStitch project here when Proofs is connected to your account, or upload a .stitchpilot file when composing.</p>{% endif %}
+<p class="hint" style="margin:0 0 4px"><a href="/proofs">← Jobs</a></p>
+<h1>New job</h1>
+<p class="muted">A job is one design for one customer. It walks from artwork to a signed-off proof to the run ticket; you'll always see where it stands.</p>
+<form method="post" action="/proofs/new" class="panel" id="newjob">
+<h3>1. Who is it for?</h3>
+{% if contacts %}<label>Existing customer</label><select onchange="var o=this.options[this.selectedIndex];if(o.value){document.querySelector('[name=contact_name]').value=o.dataset.name;document.querySelector('[name=contact_email]').value=o.value;document.querySelector('[name=contact_company]').value=o.dataset.company;document.querySelector('[name=contact_phone]').value=o.dataset.phone||''}"><option value="">— pick one, or type a new customer below —</option>{% for c in contacts %}<option value="{{ c.email }}" data-name="{{ c.display_name }}" data-company="{{ c.company_name }}" data-phone="{{ c.phone }}">{{ c.display_name or c.email }}{% if c.company_name %} · {{ c.company_name }}{% endif %}</option>{% endfor %}</select>{% endif %}
+<div class="row"><div><label>Name</label><input type="text" name="contact_name" placeholder="Marcus Lee"></div><div><label>Email <span class="hint">— where the proof link goes</span></label><input type="email" name="contact_email" placeholder="marcus@example.com"></div></div>
+<div class="row"><div><label>Company (optional)</label><input type="text" name="contact_company"></div><div><label>Mobile (optional)</label><input type="text" name="contact_phone" placeholder="+1 555 010 0100"></div></div>
+
+<h3 style="margin-top:20px">2. What's the job?</h3>
+<div class="row"><div style="flex:2"><label>Title <span class="hint">— as the customer would say it</span></label><input type="text" name="title" placeholder="Left chest logo — 24 polos" required></div><div><label>Needed by (optional)</label><input type="date" name="due_date"></div></div>
+
+<h3 style="margin-top:20px">3. Where's the design coming from?</h3>
+<div class="choices" id="starts">
+<label class="choice selected"><input type="radio" name="start" value="ask" checked style="display:none"><span class="choice-title">Ask the customer for artwork</span><span class="choice-sub">We email them a private upload link with a few questions. Their file is checked and digitized into your PiperStitch account.</span></label>
+<label class="choice"><input type="radio" name="start" value="upload" style="display:none"><span class="choice-title">I have the artwork</span><span class="choice-sub">Upload it on the next screen. Same check and first-pass digitizing.</span></label>
+<label class="choice"><input type="radio" name="start" value="project" style="display:none"><span class="choice-title">Use a PiperStitch project</span><span class="choice-sub">Already digitized in PiperStitch? Pick the saved project and go straight to building the proof.</span></label>
+</div>
+<div id="projectpick" style="display:none">
+{% if projects %}<label>Saved PiperStitch project</label><select name="core_project_id" onchange="var o=this.options[this.selectedIndex];document.querySelector('[name=core_project_name]').value=o.dataset.name||'';var t=document.querySelector('[name=title]');if(!t.value)t.value=o.dataset.name||''"><option value="">— choose —</option>{% for pr in projects %}<option value="{{ pr.id }}" data-name="{{ pr.name }}">{{ pr.name }}{% if pr.widthMM %} · {{ '%.1f'|format(pr.widthMM / 25.4) }} × {{ '%.1f'|format(pr.heightMM / 25.4) }} in{% endif %}</option>{% endfor %}</select>
+{% elif project_error %}<p class="hint">Couldn't list your PiperStitch projects: {{ project_error }}. You can still upload a .stitchpilot file when building the proof.</p>
+{% else %}<p class="hint">No saved projects in your PiperStitch account yet — save one there, or upload a .stitchpilot file when building the proof.</p>{% endif %}
 <input type="hidden" name="core_project_name">
-<div class="row"><div><label>Title</label><input type="text" name="title" placeholder="Left chest logo — 24 polos"></div><div><label>Due date (optional)</label><input type="date" name="due_date"></div></div>
-<p><button class="btn big">Create proof</button></p>
+</div>
+<p style="margin-top:18px"><button class="btn primary big" id="go">Create the job</button></p>
+<p class="hint" style="text-align:center" id="gohint">The customer gets one email with the upload link. Everything else waits for you.</p>
 </form>
+<script>
+(function(){var box=document.getElementById('starts'),pick=document.getElementById('projectpick');
+function sync(){box.querySelectorAll('.choice').forEach(function(c){c.classList.toggle('selected',c.querySelector('input').checked)});var v=box.querySelector('input:checked').value;pick.style.display=v=='project'?'block':'none';document.getElementById('go').textContent=v=='ask'?'Create the job and send the artwork request':'Create the job';document.getElementById('gohint').textContent=v=='ask'?'The customer gets one email with the upload link. Everything else waits for you.':'Nothing goes to the customer until you say so.'}
+box.addEventListener('change',sync);sync()})();
+</script>
 {% endblock %}

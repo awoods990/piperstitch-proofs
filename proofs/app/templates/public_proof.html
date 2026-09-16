@@ -1,20 +1,20 @@
 {% extends "base.html" %}
 {% block title %}{{ account.shop_name or 'Your embroiderer' }} — proof {{ p.reference }}{% endblock %}
 {% block wrapclass %}narrow{% endblock %}
-{% block header %}<header class="top" style="border-top:4px solid {{ account.brand_color }}"><div class="wrap"><span class="brand">{{ account.shop_name or 'Your embroiderer' }}</span><span class="spacer"></span><span class="stamp">Proof {{ p.reference }}</span></div></header>{% endblock %}
+{% block header %}<header class="custbar" style="border-top-color:{{ account.brand_color }}"><div class="wrap"><span class="shop">{{ account.shop_name or 'Your embroiderer' }}</span><span style="flex:1"></span><span class="hint">Proof {{ p.reference }}</span></div></header>{% endblock %}
 {% block content %}
 {% set decided = v.status in ('approved','approved_with_notes','declined') %}
 <h1>{{ p.title }}</h1>
-<p class="stamp">Version {{ v.version_number }} of {{ version_count }} · created {{ v.composed_at[:10] }}{% if v.version_number > 1 %} · supersedes v{{ v.version_number - 1 }}{% endif %}{% if v.status == 'superseded' %} · <span class="badge warn">superseded</span>{% endif %}
+<p class="hint">Version {{ v.version_number }} of {{ version_count }} · created {{ v.composed_at[:10] }}{% if v.version_number > 1 %} · supersedes v{{ v.version_number - 1 }}{% endif %}{% if v.status == 'superseded' %} · <span class="badge warn">superseded</span>{% endif %}
 {% if read_only %} · <a href="/p/{{ token }}">back to the current version</a>{% endif %}</p>
-{% if v.change_summary and not read_only %}<p class="stamp">What changed since the last version: {{ v.change_summary }}</p>{% endif %}
+{% if v.change_summary and not read_only %}<p class="hint">What changed since the last version: {{ v.change_summary }}</p>{% endif %}
 {% if p.triage_override_reason %}<div class="honesty">A note from the shop about your artwork: {{ p.triage_override_reason }}</div>{% endif %}
 {% if v.version_number > 1 and not read_only %}
-<div class="card"><h3>Before and after</h3>
+<div class="panel"><h3>Before and after</h3>
 <div class="chips" style="margin-bottom:8px"><label><input type="radio" name="cmp" value="side" checked onchange="cmpMode('side')"> Side by side</label><label><input type="radio" name="cmp" value="slider" onchange="cmpMode('slider')"> Slider</label><label><input type="radio" name="cmp" value="diff" onchange="cmpMode('diff')"> What changed</label></div>
-<div id="cmp-side" class="row"><div><div class="render"><img src="/p/{{ token }}/versions/{{ v.version_number - 1 }}/render.png" alt="Version {{ v.version_number - 1 }}"></div><p class="stamp" style="text-align:center">Version {{ v.version_number - 1 }}</p></div><div><div class="render"><img src="/p/{{ token }}/render.png" alt="Version {{ v.version_number }}"></div><p class="stamp" style="text-align:center">Version {{ v.version_number }} (this one)</p></div></div>
-<div id="cmp-slider" hidden><div class="render" style="position:relative"><img src="/p/{{ token }}/versions/{{ v.version_number - 1 }}/render.png" alt="" id="cmpOld"><img src="/p/{{ token }}/render.png" alt="" id="cmpNew" style="position:absolute;left:0;top:0;clip-path:inset(0 50% 0 0)"></div><input type="range" min="0" max="100" value="50" style="width:100%" oninput="document.getElementById('cmpNew').style.clipPath='inset(0 '+(100-this.value)+'% 0 0)'"><p class="stamp" style="text-align:center">Drag: left is version {{ v.version_number - 1 }}, right is version {{ v.version_number }}</p></div>
-<div id="cmp-diff" hidden><div class="render"><img src="/p/{{ token }}/compare/{{ v.version_number - 1 }}/difference.png" alt="Difference" loading="lazy"></div><p class="stamp" style="text-align:center">Red is what changed since version {{ v.version_number - 1 }}</p></div>
+<div id="cmp-side" class="row"><div><div class="render"><img src="/p/{{ token }}/versions/{{ v.version_number - 1 }}/render.png" alt="Version {{ v.version_number - 1 }}"></div><p class="hint" style="text-align:center">Version {{ v.version_number - 1 }}</p></div><div><div class="render"><img src="/p/{{ token }}/render.png" alt="Version {{ v.version_number }}"></div><p class="hint" style="text-align:center">Version {{ v.version_number }} (this one)</p></div></div>
+<div id="cmp-slider" hidden><div class="render" style="position:relative"><img src="/p/{{ token }}/versions/{{ v.version_number - 1 }}/render.png" alt="" id="cmpOld"><img src="/p/{{ token }}/render.png" alt="" id="cmpNew" style="position:absolute;left:0;top:0;clip-path:inset(0 50% 0 0)"></div><input type="range" min="0" max="100" value="50" style="width:100%" oninput="document.getElementById('cmpNew').style.clipPath='inset(0 '+(100-this.value)+'% 0 0)'"><p class="hint" style="text-align:center">Drag: left is version {{ v.version_number - 1 }}, right is version {{ v.version_number }}</p></div>
+<div id="cmp-diff" hidden><div class="render"><img src="/p/{{ token }}/compare/{{ v.version_number - 1 }}/difference.png" alt="Difference" loading="lazy"></div><p class="hint" style="text-align:center">Red is what changed since version {{ v.version_number - 1 }}</p></div>
 <script>function cmpMode(m){['side','slider','diff'].forEach(function(k){document.getElementById('cmp-'+k).hidden=(k!==m)})}</script></div>
 {% endif %}
 
@@ -23,37 +23,37 @@
 {% elif v.status == 'declined' %}<div class="flash error">You declined this proof. If that was a mistake, contact {{ account.shop_name or 'the shop' }}{% if account.reply_to_email %} at {{ account.reply_to_email }}{% endif %}.</div>
 {% elif v.status == 'changes_requested' %}<div class="flash">Your change requests are with the shop. You'll get a new version to approve.</div>{% endif %}
 
-<div class="card">
+<div class="panel">
 {% if v.artifact_hashes.mockup %}<div class="render" style="margin-bottom:10px"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/mockup.png" alt="On the garment at relative size"></div>
-<p class="stamp" style="margin:0 0 10px">On a {{ v.garment_color|lower }} {{ TEMPLATE_BY_ID[v.garment_template_id].name|lower if v.garment_template_id in TEMPLATE_BY_ID else 'garment' }} at relative size — a drawing, not a photograph. Below, the stitches themselves:</p>{% endif %}
+<p class="hint" style="margin:0 0 10px">On a {{ v.garment_color|lower }} {{ TEMPLATE_BY_ID[v.garment_template_id].name|lower if v.garment_template_id in TEMPLATE_BY_ID else 'garment' }} at relative size — a drawing, not a photograph. Below, the stitches themselves:</p>{% endif %}
 <div class="render" id="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/render.png" alt="Your logo as it will sew" id="renderImg"></div>
-<p class="stamp" style="margin:8px 0 0">Pinch or zoom to inspect. This is rendered from the actual machine file at true scale.</p>
+<p class="hint" style="margin:8px 0 0">Pinch or zoom to inspect. This is rendered from the actual machine file at true scale.</p>
 <div class="honesty">{{ HONESTY_NOTE }}</div>
 <table class="specs">
-<tr><td>Finished size</td><td>{{ v.width_mm|inches }} × {{ v.height_mm|inches }} in <span class="stamp">({{ '%.2f'|format(v.width_mm) }} × {{ '%.2f'|format(v.height_mm) }} mm)</span></td></tr>
-<tr><td>Stitches</td><td>{{ '{:,}'.format(v.stitch_count) }} <span class="stamp">· {{ v.color_change_count }} colour change{{ '' if v.color_change_count == 1 else 's' }} · {{ v.trim_count }} trims</span></td></tr>
+<tr><td>Finished size</td><td>{{ v.width_mm|inches }} × {{ v.height_mm|inches }} in <span class="hint">({{ '%.2f'|format(v.width_mm) }} × {{ '%.2f'|format(v.height_mm) }} mm)</span></td></tr>
+<tr><td>Stitches</td><td>{{ '{:,}'.format(v.stitch_count) }} <span class="hint">· {{ v.color_change_count }} colour change{{ '' if v.color_change_count == 1 else 's' }} · {{ v.trim_count }} trims</span></td></tr>
 {% if v.garment_style_name or v.garment_color %}<tr><td>Garment</td><td>{{ v.garment_style_name }}{% if v.garment_color %} · {{ v.garment_color }}{% endif %}</td></tr>{% endif %}
-{% if v.placement_name %}<tr><td>Placement</td><td>{{ v.placement_name }}{% if v.placement_notes %}<br><span class="stamp">{{ v.placement_notes }} (placement may vary up to 0.5 in)</span>{% endif %}</td></tr>{% endif %}
+{% if v.placement_name %}<tr><td>Placement</td><td>{{ v.placement_name }}{% if v.placement_notes %}<br><span class="hint">{{ v.placement_notes }} (placement may vary up to 0.5 in)</span>{% endif %}</td></tr>{% endif %}
 {% if v.quantity %}<tr><td>Quantity</td><td>{{ v.quantity }}{% if v.size_breakdown %} — {% for k, val in v.size_breakdown.items() %}{{ k }} × {{ val }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</td></tr>{% endif %}
-<tr><td>Fabric</td><td>{{ FABRIC_NAMES.get(v.fabric_code, v.fabric_code) }}<br><span class="stamp">Backing: {{ v.stabilizer_advice }}</span></td></tr>
+<tr><td>Fabric</td><td>{{ FABRIC_NAMES.get(v.fabric_code, v.fabric_code) }}<br><span class="hint">Backing: {{ v.stabilizer_advice }}</span></td></tr>
 {% if v.price_line %}<tr><td>Price</td><td>{{ v.price_line }}</td></tr>{% endif %}
 </table>
 {% if v.artifact_hashes.diagram %}<h3 style="margin-top:14px">Where it goes</h3><div class="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/diagram.png" alt="Placement diagram"></div>{% endif %}
 {% if v.colorways %}<h3 style="margin-top:14px">Choose a colourway</h3>
 <div class="row" id="colorways">
-<label class="cwcard" style="flex:1;min-width:140px;cursor:pointer"><input type="radio" name="cw_pick" value="1" checked onchange="pickCW(1)"><div class="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/render.png" alt=""></div><p class="stamp" style="text-align:center">1. As shown</p></label>
-{% for cw in v.colorways %}<label class="cwcard" style="flex:1;min-width:140px;cursor:pointer"><input type="radio" name="cw_pick" value="{{ cw.ordinal }}" onchange="pickCW({{ cw.ordinal }})"><div class="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/cw{{ cw.ordinal }}-render.png" alt=""></div><p class="stamp" style="text-align:center">{{ cw.ordinal }}. {{ cw.name }}</p></label>{% endfor %}
+<label class="cwcard" style="flex:1;min-width:140px;cursor:pointer"><input type="radio" name="cw_pick" value="1" checked onchange="pickCW(1)"><div class="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/render.png" alt=""></div><p class="hint" style="text-align:center">1. As shown</p></label>
+{% for cw in v.colorways %}<label class="cwcard" style="flex:1;min-width:140px;cursor:pointer"><input type="radio" name="cw_pick" value="{{ cw.ordinal }}" onchange="pickCW({{ cw.ordinal }})"><div class="render"><img src="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/cw{{ cw.ordinal }}-render.png" alt=""></div><p class="hint" style="text-align:center">{{ cw.ordinal }}. {{ cw.name }}</p></label>{% endfor %}
 </div>
 <script>function pickCW(n){var f=document.querySelector('#approve input[name=colorway]');if(f)f.value=n;}</script>
 {% endif %}
 <h3 style="margin-top:14px">Thread colours, in sewing order</h3>
-<ul class="stops">{% for s in v.thread_stops %}<li><span class="n">{{ s.stop_number }}</span><span class="swatch" style="background:{{ s.hex }}"></span>{{ s.thread_name }}{% if s.thread_code %} <span class="stamp">{{ s.thread_brand }} {{ s.thread_code }}</span>{% endif %}<span class="count">{{ '{:,}'.format(s.stitch_count) }} st</span></li>{% endfor %}</ul>
+<ul class="stops">{% for s in v.thread_stops %}<li><span class="n">{{ s.stop_number }}</span><span class="swatch" style="background:{{ s.hex }}"></span>{{ s.thread_name }}{% if s.thread_code %} <span class="hint">{{ s.thread_brand }} {{ s.thread_code }}</span>{% endif %}<span class="count">{{ '{:,}'.format(s.stitch_count) }} st</span></li>{% endfor %}</ul>
 {% if v.message_body %}<h3 style="margin-top:14px">From {{ account.shop_name or 'the shop' }}</h3><p>{{ v.message_body }}</p>{% endif %}
 <p><a href="/p/{{ token }}{% if read_only %}/versions/{{ v.version_number }}{% endif %}/proof.pdf" target="_blank">Download the proof PDF</a></p>
 </div>
 
 {% if not decided and not read_only and v.status != 'superseded' %}
-<div class="card" id="approve">
+<div class="panel" id="approve">
 <h2>Approve this proof</h2>
 <div class="terms">{{ terms.body if terms else '' }}</div>
 <form method="post" action="/p/{{ token }}/approve" onsubmit="document.getElementById('lo').value=new Date().getTimezoneOffset()">
@@ -61,34 +61,34 @@
 <div class="row"><div><label>Your name</label><input type="text" name="signer_name" required placeholder="Type your full name"></div><div><label>Your email</label><input type="email" name="signer_email" value="{{ contact.email }}"></div></div>
 <label>Notes (optional — anything the shop should know)</label><input type="text" name="notes">
 <label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink2);margin-top:12px"><input type="checkbox" name="consent" value="yes" required style="margin-top:3px"><span>{{ terms.consent_text if terms else '' }}</span></label>
-<p><button class="btn big">Approve</button></p>
+<p><button class="btn primary big">Approve</button></p>
 </form>
 </div>
 
-<div class="card" id="changes">
+<div class="panel" id="changes">
 <h2>Or request changes</h2>
 <form method="post" action="/p/{{ token }}/changes" id="changesForm">
 <div class="chips">
 {% for code, label in [('color_wrong','A colour is wrong'),('too_small','Make it bigger'),('too_big','Make it smaller'),('placement','Move it'),('text','Fix the text'),('missing_detail','Something is missing')] %}<label><input type="checkbox" name="chip" value="{{ code }}"> {{ label }}</label>{% endfor %}
 </div>
 <label>Tell the shop what to change</label><textarea name="body" placeholder="The blue should be darker, like our website. And the tagline is hard to read."></textarea>
-<p class="pins-hint">Tap the picture above to drop a pin on the spot you mean. <span id="pinCount"></span></p>
+<p class="hint">Tap the picture above to drop a pin on the spot you mean. <span id="pinCount"></span></p>
 <input type="hidden" name="pins" id="pins" value="[]">
-<p><button class="btn secondary big">Send change requests</button></p>
+<p><button class="btn big">Send change requests</button></p>
 </form>
 </div>
 
-<details class="card"><summary>Cancel this job instead</summary><form method="post" action="/p/{{ token }}/decline"><label>Why? (optional)</label><input type="text" name="reason"><p><button class="btn danger">Decline the proof</button></p></form></details>
+<details class="panel"><summary>Cancel this job instead</summary><form method="post" action="/p/{{ token }}/decline"><label>Why? (optional)</label><input type="text" name="reason"><p><button class="btn danger">Decline the proof</button></p></form></details>
 {% endif %}
 
-<div class="card" id="questions">
+<div class="panel" id="questions">
 <h2>Questions</h2>
-{% for msg in messages %}<p><b>{{ 'You' if msg.direction == 'inbound' else (account.shop_name or 'Shop') }}</b> <span class="stamp">{{ msg.created_at[:16].replace('T',' ') }}</span><br>{{ msg.body }}</p>{% endfor %}
-{% if not read_only and v.status != 'superseded' %}<form method="post" action="/p/{{ token }}/question"><label>Ask the shop something</label><textarea name="body" placeholder="Can this go on a black cap too?"></textarea><p><button class="btn secondary">Ask</button></p></form>{% endif %}
+{% for msg in messages %}<p><b>{{ 'You' if msg.direction == 'inbound' else (account.shop_name or 'Shop') }}</b> <span class="hint">{{ msg.created_at[:16].replace('T',' ') }}</span><br>{{ msg.body }}</p>{% endfor %}
+{% if not read_only and v.status != 'superseded' %}<form method="post" action="/p/{{ token }}/question"><label>Ask the shop something</label><textarea name="body" placeholder="Can this go on a black cap too?"></textarea><p><button class="btn">Ask</button></p></form>{% endif %}
 </div>
 
-{% if version_count > 1 %}<p class="stamp">Earlier versions: {% for n in range(1, version_count + 1) %}{% if n != v.version_number %}<a href="/p/{{ token }}/versions/{{ n }}">v{{ n }}</a> {% endif %}{% endfor %}</p>{% endif %}
-<p class="stamp">Questions about this proof? Contact {{ account.shop_name or 'the shop' }}{% if account.reply_to_email %} at {{ account.reply_to_email }}{% endif %}{% if account.phone %} · {{ account.phone }}{% endif %}.</p>
+{% if version_count > 1 %}<p class="hint">Earlier versions: {% for n in range(1, version_count + 1) %}{% if n != v.version_number %}<a href="/p/{{ token }}/versions/{{ n }}">v{{ n }}</a> {% endif %}{% endfor %}</p>{% endif %}
+<p class="hint">Questions about this proof? Contact {{ account.shop_name or 'the shop' }}{% if account.reply_to_email %} at {{ account.reply_to_email }}{% endif %}{% if account.phone %} · {{ account.phone }}{% endif %}.</p>
 <script>
 (function(){var box=document.getElementById('render'),img=document.getElementById('renderImg'),pins=[],hidden=document.getElementById('pins'),count=document.getElementById('pinCount');if(!box||!hidden)return;
 box.addEventListener('click',function(e){var r=img.getBoundingClientRect();var x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height;if(x<0||x>1||y<0||y>1)return;var note=prompt('What about this spot?')||'';pins.push({x:Math.round(x*1000)/1000,y:Math.round(y*1000)/1000,note:note});var d=document.createElement('div');d.className='pin';d.style.left=(x*100)+'%';d.style.top=(y*100)+'%';d.textContent=pins.length;box.appendChild(d);hidden.value=JSON.stringify(pins);count.textContent=pins.length+' pin'+(pins.length==1?'':'s')+' added.';});})();

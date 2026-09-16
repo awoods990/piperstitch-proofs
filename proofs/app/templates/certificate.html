@@ -2,11 +2,11 @@
 {% block title %}Certificate of Approval {{ p.reference }}{% endblock %}
 {% block wrapclass %}narrow{% endblock %}
 {% block content %}
-<div class="card" style="margin-top:20px">
+<div class="panel" style="margin-top:20px">
 <h1>Certificate of Approval</h1>
-<p class="stamp">{{ account.shop_name or 'Your embroiderer' }} · {{ p.reference }} · {{ p.title }} · version {{ v.version_number }}</p>
-<p><span class="badge {% if verification.result == 'pass' %}ok{% else %}bad{% endif %}">{{ 'Verified' if verification.result == 'pass' else 'VERIFICATION FAILED' }}</span>
-{% if verification.result != 'pass' %}<br><span class="stamp">{{ verification.reasons|join('; ') }}</span>{% endif %}</p>
+<p class="hint">{{ account.shop_name or 'Your embroiderer' }} · {{ p.reference }} · {{ p.title }} · version {{ v.version_number }}</p>
+<p><span class="badge {% if verification.result == "pass" %}good{% else %}bad{% endif %}">{{ 'Verified' if verification.result == 'pass' else 'VERIFICATION FAILED' }}</span>
+{% if verification.result != 'pass' %}<br><span class="hint">{{ verification.reasons|join('; ') }}</span>{% endif %}</p>
 <table class="specs">
 <tr><td>Approved by</td><td>{{ record.signer_name_typed }} ({{ record.signer_email }})</td></tr>
 <tr><td>When</td><td>{{ record.approved_at|dt }}</td></tr>
@@ -18,7 +18,7 @@
 </table>
 <h3 style="margin-top:14px">Approved file hashes</h3>
 <table class="specs">{% for k, val in record.artifact_hashes.items() %}{% if val is mapping %}{% for k2, v2 in val.items() %}{% if v2 is mapping %}{% for k3, v3 in v2.items() %}<tr><td>{{ k }}.{{ k2 }}.{{ k3 }}</td><td class="mono">{{ v3 }}</td></tr>{% endfor %}{% else %}<tr><td>{{ k }}.{{ k2 }}</td><td class="mono">{{ v2 }}</td></tr>{% endif %}{% endfor %}{% else %}<tr><td>{{ k }}</td><td class="mono">{{ val }}</td></tr>{% endif %}{% endfor %}</table>
-<p style="margin-top:14px"><a class="btn" href="/c/{{ token }}/certificate.pdf" target="_blank">Download certificate PDF</a> <a class="btn secondary" href="/verify/{{ record.certificate_sha256 }}" target="_blank">Verify (JSON)</a></p>
-<p class="stamp">This link does not expire. Anyone holding the certificate's SHA-256 can verify it at {{ request.base_url }}verify without an account.</p>
+<p style="margin-top:14px"><a class="btn" href="/c/{{ token }}/certificate.pdf" target="_blank">Download certificate PDF</a> <a class="btn" href="/verify/{{ record.certificate_sha256 }}" target="_blank">Verify (JSON)</a></p>
+<p class="hint">This link does not expire. Anyone holding the certificate's SHA-256 can verify it at {{ request.base_url }}verify without an account.</p>
 </div>
 {% endblock %}

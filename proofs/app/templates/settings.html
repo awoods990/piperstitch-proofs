@@ -1,28 +1,42 @@
 {% extends "shop_base.html" %}
+{% set nav = 'settings' %}
 {% block content %}
 <h1>Settings</h1>
-<form method="post" action="/settings" class="card">
-<h3>Shop</h3>
-<div class="row"><div><label>Shop name</label><input type="text" name="shop_name" value="{{ m.account.shop_name }}"></div><div><label>Reply-to email (notifications come here)</label><input type="email" name="reply_to_email" value="{{ m.account.reply_to_email }}"></div></div>
-<div class="row"><div><label>Phone</label><input type="text" name="phone" value="{{ m.account.phone }}"></div><div><label>Customer response window (days)</label><input type="number" name="default_response_window_days" value="{{ m.account.default_response_window_days }}" min="1" max="60"></div></div>
-<div class="row"><div><label>Quiet hours start (customer's local hour)</label><input type="number" name="quiet_hours_start" min="0" max="23" value="{{ m.account.quiet_hours_start }}"></div><div><label>Quiet hours end</label><input type="number" name="quiet_hours_end" min="0" max="23" value="{{ m.account.quiet_hours_end }}"></div><div><label>Reminders</label><select name="reminders_enabled"><option value="yes" {% if m.account.reminders_enabled %}selected{% endif %}>On — chase for me</option><option value="no" {% if not m.account.reminders_enabled %}selected{% endif %}>Off</option></select></div></div>
-<p class="stamp">Reminders: 2 days after sending if unopened, 4 days after if opened without a reply, again at 8 days, and a note to you at 10 days. Intake links: 2 and 5 days, then a note to you at 7. Never more than one a day, never in quiet hours.</p>
-<label>Release gate — machine files before approval</label><select name="release_gate_policy"><option value="soft" {% if m.account.release_gate_policy=='soft' %}selected{% endif %}>Soft: downloadable with an unapproved warning (default)</option><option value="hard" {% if m.account.release_gate_policy=='hard' %}selected{% endif %}>Hard: withheld until released</option><option value="off" {% if m.account.release_gate_policy=='off' %}selected{% endif %}>Off: no restriction</option></select>
-<h3 style="margin-top:18px">Approval terms ({{ terms.label }})</h3>
-<p class="stamp">Shown in full above the approve button. Editing creates a new version; approvals already recorded keep the version they were shown.</p>
-<textarea name="terms_body" style="min-height:220px">{{ terms.body }}</textarea>
-<label>Consent text</label><textarea name="consent_text">{{ terms.consent_text }}</textarea>
-<p><button class="btn">Save</button></p>
+<form method="post" action="/settings">
+<div class="panel"><h3>Your shop</h3>
+<div class="row"><div><label>Shop name <span class="hint">— customers see proofs and emails from this name</span></label><input type="text" name="shop_name" value="{{ m.account.shop_name }}" required></div><div><label>Reply-to email <span class="hint">— customer replies and your notifications go here</span></label><input type="email" name="reply_to_email" value="{{ m.account.reply_to_email }}"></div></div>
+<div class="row"><div><label>Phone</label><input type="text" name="phone" value="{{ m.account.phone }}"></div><div><label>Days a customer has to respond</label><input type="number" name="default_response_window_days" value="{{ m.account.default_response_window_days }}" min="1" max="60"></div></div>
+</div>
+<div class="panel"><h3>Chasing customers</h3>
+<p class="hint">With reminders on, Proofs chases for you: 2 days after sending if unopened, 4 days if opened without a reply, again at 8, and a nudge to you at 10. Artwork requests: 2 and 5 days, then you at 7. Never more than one a day, never in quiet hours, and you can snooze any job.</p>
+<div class="row"><div><label>Reminders</label><select name="reminders_enabled"><option value="yes" {% if m.account.reminders_enabled %}selected{% endif %}>On — chase for me</option><option value="no" {% if not m.account.reminders_enabled %}selected{% endif %}>Off — I'll follow up myself</option></select></div><div><label>Quiet hours start <span class="hint">(customer's local hour, 0–23)</span></label><input type="number" name="quiet_hours_start" min="0" max="23" value="{{ m.account.quiet_hours_start }}"></div><div><label>Quiet hours end</label><input type="number" name="quiet_hours_end" min="0" max="23" value="{{ m.account.quiet_hours_end }}"></div></div>
+</div>
+<div class="panel"><h3>Release gate</h3>
+<p class="hint">What happens to machine files (DST, PES…) before a job is released. Releasing verifies the approved files are untouched and clears the run ticket.</p>
+<select name="release_gate_policy"><option value="soft" {% if m.account.release_gate_policy=='soft' %}selected{% endif %}>Soft — downloadable, stamped “unapproved” until release (recommended)</option><option value="hard" {% if m.account.release_gate_policy=='hard' %}selected{% endif %}>Hard — withheld until release</option><option value="off" {% if m.account.release_gate_policy=='off' %}selected{% endif %}>Off — no restriction</option></select>
+</div>
+<div class="panel"><h3>Approval terms <span class="badge neutral">{{ terms.label }}</span></h3>
+<p class="hint">Shown in full above the approve button. Editing creates a new version; approvals already recorded keep the version the customer saw.</p>
+<textarea name="terms_body" style="min-height:200px">{{ terms.body }}</textarea>
+<label>Consent line <span class="hint">— the checkbox text</span></label><textarea name="consent_text" style="min-height:60px">{{ terms.consent_text }}</textarea>
+</div>
+<p><button class="btn primary">Save settings</button></p>
 </form>
-<div class="card"><h3>Texting (SMS)</h3>
-<p class="stamp">With texting on, customers who opted in on the intake form get the proof link and reminders by text as well as email, can reply STOP at any time, and can text photos of artwork straight in. {% if not SMS_CONFIGURED %}<b>Not configured on this server yet</b> (Twilio credentials and a registered number are needed).{% endif %}</p>
-<form method="post" action="/settings/sms"><select name="enabled"><option value="no" {% if not ent.sms_enabled %}selected{% endif %}>Off</option><option value="yes" {% if ent.sms_enabled %}selected{% endif %}>On</option></select> <button class="btn secondary">Save</button></form></div>
-<div class="card"><h3>Art by email</h3>{% if m.account.slug %}<p>Forward customer artwork to <b>art@{{ m.account.slug }}.piperstitch.com</b>. Mail from you or from a known customer becomes a proof straight away; anyone else waits for you to accept it. Messages that fail DKIM/DMARC are rejected.</p>{% else %}<form method="post" action="/settings/art-address"><p>Get an address customers and you can email artwork to.</p><button class="btn secondary">Create my art@ address</button></form>{% endif %}</div>
-<div class="card"><h3>Plan</h3>
+
+<div class="panel"><h3>Plan</h3>
 {% if ent.proofs_enabled %}<p>PiperStitch Proofs — <b>${{ '%.0f'|format(PROOFS_PRICE_CENTS / 100) }}/month</b>{% if ent.subscription_status %} · {{ ent.subscription_status.replace('_',' ') }}{% endif %}{% if ent.cancel_at_period_end %} · ends at the period's end{% endif %}.</p>
-{% if ent.stripe_customer_id %}<form method="post" action="/billing/portal"><button class="btn secondary">Manage billing</button></form>{% endif %}
-{% else %}<p>Free: <b>{{ ent.free_proofs_granted - ent.free_proofs_used }}</b> of {{ ent.free_proofs_granted }} free proofs left. Unlimited proofs, the chase engine and art-by-email are <b>${{ '%.0f'|format(PROOFS_PRICE_CENTS / 100) }}/month</b>, cancel any time. Nothing you've sent is ever locked away.</p>
-<form method="post" action="/billing/checkout"><button class="btn">Upgrade to Proofs</button></form>{% endif %}</div>
-<div class="card"><h3>People</h3><ul>{% for u in members %}<li>{{ u.user.email }} — {{ u.role }}{% if not u.accepted_at %} (invited){% endif %}</li>{% endfor %}</ul>
-<form method="post" action="/settings/invite"><div class="row"><div><label>Invite by email</label><input type="email" name="email" required></div><div><label>Role</label><select name="role"><option value="sales">Sales — create, compose, send, respond</option><option value="stitcher">Stitcher — read, run tickets, mark sewn</option><option value="owner">Owner — everything</option></select></div></div><p><button class="btn secondary">Invite</button></p></form></div>
+{% if ent.stripe_customer_id %}<form method="post" action="/billing/portal"><button class="btn">Manage billing</button></form>{% endif %}
+{% else %}<p><b>{{ ent.free_proofs_granted - ent.free_proofs_used }}</b> of {{ ent.free_proofs_granted }} free proofs left. Unlimited proofs, automatic chasing, texting and art-by-email are <b>${{ '%.0f'|format(PROOFS_PRICE_CENTS / 100) }}/month</b>, cancel any time. Nothing you've sent is ever locked away.</p>
+<form method="post" action="/billing/checkout"><button class="btn primary">Upgrade to Proofs</button></form>{% endif %}</div>
+
+<div class="grid2">
+<div class="panel"><h3>Texting (SMS)</h3>
+<p class="hint">Customers who opt in on the artwork form get the proof link and reminders by text too, can reply STOP any time, and can text photos of artwork straight in.{% if not SMS_CONFIGURED %} <b>Not configured on this server yet</b> — Twilio credentials and a registered number are needed.{% endif %}</p>
+<form method="post" action="/settings/sms" class="row" style="align-items:flex-end"><div><label>Texting</label><select name="enabled"><option value="no" {% if not ent.sms_enabled %}selected{% endif %}>Off</option><option value="yes" {% if ent.sms_enabled %}selected{% endif %}>On</option></select></div><div style="flex:0"><button class="btn">Save</button></div></form></div>
+<div class="panel"><h3>Art by email</h3>{% if m.account.slug %}<p style="font-size:13.5px">Forward customer artwork to <b>art@{{ m.account.slug }}.piperstitch.com</b>. Mail from you or a known customer becomes a job straight away; anyone new waits for you to accept it on the Jobs page. Mail that fails DKIM/DMARC is rejected.</p>{% else %}<p class="hint">Get an address you and your customers can email artwork to — each message becomes a job.</p><form method="post" action="/settings/art-address"><button class="btn">Create my art@ address</button></form>{% endif %}</div>
+</div>
+
+<div class="panel"><h3>People</h3>
+<table class="specs" style="margin-bottom:8px">{% for u in members %}<tr><td>{{ u.user.email }}</td><td>{{ u.role }}{% if not u.accepted_at %} <span class="badge neutral">invited</span>{% endif %}</td></tr>{% endfor %}</table>
+<form method="post" action="/settings/invite"><div class="row"><div><label>Invite by email</label><input type="email" name="email" required></div><div><label>Role</label><select name="role"><option value="sales">Sales — create, build, send, reply</option><option value="stitcher">Stitcher — view, run tickets, mark sewn</option><option value="owner">Owner — everything, incl. settings and billing</option></select></div><div style="flex:0;align-self:flex-end"><button class="btn">Invite</button></div></div></form></div>
 {% endblock %}

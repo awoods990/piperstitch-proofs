@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block header %}
-<header class="top"><div class="wrap">
-<a class="brand" href="/proofs">PiperStitch Proofs</a>
-<nav><a href="/proofs">Board</a>{% if m.role != 'stitcher' %}<a href="/proofs/new">New proof</a>{% endif %}{% if m.role == 'owner' %}<a href="/settings">Settings</a>{% endif %}</nav>
-<span class="spacer"></span>
-<span class="stamp">{{ m.user.email }} · {{ m.role }}</span>
-<form method="post" action="/signout"><button class="btn secondary" style="padding:6px 10px;font-size:13px">Sign out</button></form>
-</div></header>
+<header class="topbar">
+<a class="brand" href="/proofs"><img src="/static/icon.png" alt="">PiperStitch <small>Proofs</small></a>
+<nav><a href="/proofs" class="{{ 'on' if nav == 'board' else '' }}">Jobs</a>{% if m.role != 'stitcher' %}<a href="/proofs/new" class="{{ 'on' if nav == 'new' else '' }}">New job</a>{% endif %}{% if m.role == 'owner' %}<a href="/settings" class="{{ 'on' if nav == 'settings' else '' }}">Settings</a>{% endif %}</nav>
+<span class="grow"></span>
+<span class="who">{{ m.account.shop_name or m.user.email }} · {{ m.role }}</span>
+<form method="post" action="/signout"><button class="btn ghost small">Sign out</button></form>
+</header>
 {% endblock %}

@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -21,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, billing, colorways, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, sms, storage, stitch, texts, tokens
+from . import auth, billing, colorways, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, sms, stages, storage, stitch, texts, tokens
 from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, File, InboundEmail, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
@@ -59,7 +60,9 @@ _here = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
 templates = Jinja2Templates(directory=str(_here / "templates"))
 templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
-                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL})
+                              "GARMENT_COLORS": garments.GARMENT_COLORS, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL,
+                              "STEPS": stages.STEPS,
+                              "ASSET_V": str(int((_here / "static" / "proofs.css").stat().st_mtime))})
 
 
 def _fmt_dt(value: str) -> str:
@@ -194,25 +197,47 @@ def signout(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse("/signin", status_code=303)
 
 
-BOARD_COLUMNS = [
-    ("Waiting on you", ("draft", "digitizing", "ready_to_send", "changes_requested", "expired", "declined", "approved", "approved_with_notes", "art_received", "intake_expired", "internal_review")),
-    ("Waiting on customer", ("sent", "viewed", "awaiting_art")),
-    ("In production", ("released",)),
-    ("Done", ("completed", "void")),
-]
 
 
 @app.get("/proofs", response_class=HTMLResponse)
-def board(request: Request, m: AccountUser = Depends(require_member), db: Session = Depends(get_db)):
-    rows = list(db.execute(select(Proof).where(Proof.account_id == m.account_id, Proof.archived_at.is_(None)).order_by(Proof.updated_at.desc())).scalars())
-    columns = []
-    for label, states in BOARD_COLUMNS:
-        columns.append((label, [p for p in rows if p.status in states]))
+def board(request: Request, m: AccountUser = Depends(require_member), db: Session = Depends(get_db), show: str = "active", q: str = ""):
+    """The dashboard: every open job with where it stands and whose move it is."""
+    all_rows = list(db.execute(select(Proof).where(Proof.account_id == m.account_id, Proof.archived_at.is_(None)).order_by(Proof.updated_at.desc())).scalars())
+    blocked = {pid for (pid,) in db.execute(select(TriageReport.proof_id).join(TriageFinding).where(TriageFinding.severity == "blocker", TriageFinding.status == "open")).all()}
+    staged = [(p, stages.stage_for(db, p, has_blockers=p.id in blocked)) for p in all_rows]
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    counts = {
+        "you": sum(1 for p, st in staged if st.waiting_on == "you" and p.status not in ("void", "completed")),
+        "customer": sum(1 for p, st in staged if st.waiting_on == "customer"),
+        "late": sum(1 for p, st in staged if st.days_waiting >= 4 and p.status not in ("void", "completed", "released")),
+        "production": sum(1 for p, st in staged if p.status == "released"),
+        "done": sum(1 for p, st in staged if p.status == "completed" and (p.completed_at or "")[:7] == month),
+    }
+    if show == "you":
+        rows = [(p, st) for p, st in staged if st.waiting_on == "you" and p.status not in ("void", "completed")]
+    elif show == "customer":
+        rows = [(p, st) for p, st in staged if st.waiting_on == "customer"]
+    elif show == "late":
+        rows = [(p, st) for p, st in staged if st.days_waiting >= 4 and p.status not in ("void", "completed", "released")]
+    elif show == "production":
+        rows = [(p, st) for p, st in staged if p.status == "released"]
+    elif show == "done":
+        rows = [(p, st) for p, st in staged if p.status in ("completed", "void")]
+    elif show == "all":
+        rows = staged
+    else:
+        show = "active"
+        rows = [(p, st) for p, st in staged if p.status not in ("completed", "void")]
+    if q.strip():
+        needle = q.strip().lower()
+        rows = [(p, st) for p, st in rows if needle in " ".join([p.title, p.reference, p.contact.display_name or "", p.contact.company_name or "", p.contact.email or ""]).lower()]
+    # Your move first, then the quietest.
+    rows.sort(key=lambda r: (0 if r[1].waiting_on == "you" else 1 if r[1].waiting_on == "colleague" else 2, -r[1].days_waiting))
     ent = proofs.entitlements(db, m.account)
     bounced = proofs.bounced_proofs(db, m.account_id)
     inbound = ingest.queue(db, m.account_id)
     db.commit()
-    return templates.TemplateResponse(request, "board.html", {"m": m, "columns": columns, "ent": ent, "bounced": bounced, "inbound": inbound,
+    return templates.TemplateResponse(request, "board.html", {"m": m, "rows": rows, "counts": counts, "show": show, "q": q, "ent": ent, "bounced": bounced, "inbound": inbound,
                                                                "art_address": f"art@{m.account.slug}.piperstitch.com" if m.account.slug else "",
                                                                "flash": request.session.pop("flash", None), "error": request.session.pop("flash_error", None)})
 
@@ -233,7 +258,8 @@ def new_proof_form(request: Request, m: AccountUser = Depends(require_can("creat
 @app.post("/proofs/new")
 def new_proof(request: Request, m: AccountUser = Depends(require_can("create")), db: Session = Depends(get_db),
               title: str = Form(""), contact_name: str = Form(""), contact_email: str = Form(""), contact_company: str = Form(""),
-              contact_phone: str = Form(""), core_project_id: str = Form(""), core_project_name: str = Form(""), due_date: str = Form("")):
+              contact_phone: str = Form(""), core_project_id: str = Form(""), core_project_name: str = Form(""), due_date: str = Form(""),
+              start: str = Form("")):
     if not contact_email.strip() and not contact_name.strip():
         request.session["flash_error"] = "Who is this proof for? Add a name or an email."
         return RedirectResponse("/proofs/new", status_code=303)
@@ -241,9 +267,22 @@ def new_proof(request: Request, m: AccountUser = Depends(require_can("create")),
         request.session["flash_error"] = "Give the job a title the customer will recognise, e.g. “Left chest logo — 24 polos”."
         return RedirectResponse("/proofs/new", status_code=303)
     contact = proofs.find_or_create_contact(db, m.account, display_name=contact_name, email=contact_email, company_name=contact_company, phone=contact_phone)
+    if start != "project":
+        core_project_id, core_project_name = "", ""
     p = proofs.create_proof(db, m.account, m.user, contact=contact, title=title or core_project_name or "Untitled",
                             core_project_id=core_project_id or None, core_project_name=core_project_name, due_date=due_date or None)
     db.commit()
+    if start == "ask" and contact.email and auth.can(m.role, "send"):
+        # The straight-through path: the artwork request goes out as the job is created.
+        try:
+            intake.send_intake(db, p, m.user, base_url=_base_url(request))
+            db.commit()
+            request.session["flash"] = f"Job created and the artwork request is on its way to {contact.email}."
+        except (proofs.TransitionError, proofs.EmailFailed, core_client.CoreError) as e:
+            db.rollback()
+            request.session["flash_error"] = f"Job created, but the artwork request wasn't sent: {e}"
+    elif start == "upload":
+        return RedirectResponse(f"/proofs/{p.id}#artwork", status_code=303)
     return RedirectResponse(f"/proofs/{p.id}", status_code=303)
 
 
@@ -257,9 +296,11 @@ def _proof_context(db: Session, m: AccountUser, p: Proof) -> dict:
     chain_ok, chain_msg = events.verify_chain(db, p.id)
     reports = list(db.execute(select(TriageReport).where(TriageReport.proof_id == p.id).order_by(TriageReport.generated_at)).scalars())
     answers = list(db.execute(select(IntakeAnswer).where(IntakeAnswer.proof_id == p.id).order_by(IntakeAnswer.submitted_at)).scalars())
+    blockers = intake.open_blockers(db, p)
     return {"m": m, "p": p, "versions": versions, "current": current, "changes": changes, "messages": messages, "approval": approval,
             "chain": chain, "chain_ok": chain_ok, "chain_msg": chain_msg, "can": lambda a: auth.can(m.role, a), "ent": proofs.entitlements(db, m.account),
-            "reports": reports, "blockers": intake.open_blockers(db, p), "answers": answers, "questions": dict((q[0], q[1]) for q in intake.QUESTIONS)}
+            "reports": reports, "blockers": blockers, "answers": answers, "questions": dict((q[0], q[1]) for q in intake.QUESTIONS),
+            "stage": stages.stage_for(db, p, has_blockers=bool(blockers))}
 
 
 @app.get("/proofs/{proof_id}", response_class=HTMLResponse)

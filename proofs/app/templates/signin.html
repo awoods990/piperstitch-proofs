@@ -1,14 +1,16 @@
 {% extends "base.html" %}
 {% block wrapclass %}narrow{% endblock %}
 {% block content %}
-<div class="card" style="margin-top:40px">
-<h1>PiperStitch Proofs</h1>
+<div class="panel" style="margin-top:48px;padding:26px 28px">
+<a class="brand" href="/"><img src="/static/icon.png" alt="">PiperStitch <small>Proofs</small></a>
+<h1 style="margin:14px 0 4px">Sign in</h1>
 {% if step == 'email' %}
-<p class="stamp">Sign in with the email you use for PiperStitch. We'll send a one-time code.</p>
-<form method="post" action="/signin"><label>Email</label><input type="email" name="email" value="{{ email or '' }}" required autofocus><p><button class="btn big">Send me a code</button></p></form>
+<p class="muted">Use the email on your PiperStitch account. We'll send you a one-time code — no password.</p>
+<form method="post" action="/signin"><label>Email</label><input type="email" name="email" value="{{ email or '' }}" required autofocus><p style="margin-top:14px"><button class="btn primary big">Send me a code</button></p></form>
 {% else %}
-<p class="stamp">We sent a code to <b>{{ email }}</b>{% if path == 'license_admin' %} (from PiperStitch){% endif %}. Enter it below.</p>
-<form method="post" action="/signin/verify"><input type="hidden" name="email" value="{{ email }}"><label>Code</label><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus><p><button class="btn big">Sign in</button></p></form>
+<p class="muted">We sent a 6-digit code to <b>{{ email }}</b>{% if path == 'license_admin' %} — it comes from PiperStitch, the same as the app's sign-in{% endif %}.</p>
+<form method="post" action="/signin/verify"><input type="hidden" name="email" value="{{ email }}"><label>Code</label><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus><p style="margin-top:14px"><button class="btn primary big">Sign in</button></p></form>
+<p class="hint">Didn't get it? Check spam, then <a href="/signin">start again</a>.</p>
 {% endif %}
 </div>
 {% endblock %}

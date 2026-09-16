@@ -1,109 +1,138 @@
 {% extends "shop_base.html" %}
+{% set nav = 'board' %}
+{% block title %}{{ p.reference }} · {{ p.title }} — PiperStitch Proofs{% endblock %}
 {% block content %}
-<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h1 style="margin:0">{{ p.reference }} · {{ p.title }}</h1><span class="badge">{{ p.status.replace('_',' ') }}</span></div>
-<p class="stamp">For {{ p.contact.display_name or '—' }}{% if p.contact.company_name %} · {{ p.contact.company_name }}{% endif %} · {{ p.contact.email }}{% if p.due_date %} · due {{ p.due_date }}{% endif %}</p>
+<p class="hint" style="margin:0 0 4px"><a href="/proofs">← Jobs</a></p>
+<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h1 style="margin:0">{{ p.title }}</h1><span class="mono" style="color:var(--label)">{{ p.reference }}</span>{% if p.due_date %}<span class="badge neutral">due {{ p.due_date }}</span>{% endif %}</div>
+<p class="muted" style="margin:2px 0 0">For <b>{{ p.contact.display_name or p.contact.email or '—' }}</b>{% if p.contact.company_name %} · {{ p.contact.company_name }}{% endif %}{% if p.contact.email %} · {{ p.contact.email }}{% endif %}{% if p.contact.phone %} · {{ p.contact.phone }}{% if p.contact.sms_opt_in_at and not p.contact.opted_out_at %} <span class="badge good" title="Opted in on the artwork form; gets links and reminders by text too">texts OK</span>{% endif %}{% endif %}</p>
 
-{% if reports or answers %}
-<div class="card"><h2>Art Readiness Report</h2>
-{% if answers %}<table class="specs">{% for a in answers %}<tr><td>{{ questions.get(a.field, a.field) }}</td><td>{{ a.value }}</td></tr>{% endfor %}</table>{% endif %}
-{% for r in reports %}
-<div class="row" style="margin-top:10px"><div style="flex:0 0 140px">{% if r.preview_storage_key %}<div class="render"><img src="/proofs/{{ p.id }}/files/{{ r.file_id }}?preview=1" alt=""></div>{% endif %}<p class="stamp"><a href="/proofs/{{ p.id }}/files/{{ r.file_id }}">{{ r.file.original_filename }}</a><br>{{ (r.file.bytes / 1024)|round|int }} KB · scan: {{ r.file.scan_status }}</p></div>
-<div style="flex:1"><p class="stamp">{{ 'Vector' if r.is_vector else r.kind|capitalize }}{% if r.effective_ppi %} · {{ '%.0f'|format(r.effective_ppi) }} PPI at {{ '%.1f'|format(r.requested_width_mm / 25.4) }} in{% endif %}{% if r.color_count %} · {{ r.color_count }} colours{% endif %}{% if r.min_feature_mm %} · finest detail {{ '%.1f'|format(r.min_feature_mm) }} mm{% endif %}</p>
-<ul style="list-style:none;padding:0;margin:0">{% for f in r.findings %}<li style="padding:6px 0;border-top:1px solid var(--line);font-size:14px"><span class="badge {% if f.severity == 'blocker' and f.status == 'open' %}bad{% elif f.severity == 'warning' %}warn{% elif f.status != 'open' %}ok{% endif %}">{{ f.status if f.status != 'open' else f.severity }}</span> <b>{{ f.title }}</b> — {{ f.message }}{% if f.suggested_fix %} <span class="stamp">{{ f.suggested_fix }}</span>{% endif %}
-{% if f.severity == 'blocker' and f.status == 'open' and can('compose') %}<form method="post" action="/proofs/{{ p.id }}/triage/{{ f.id }}/resolve" style="display:inline"><button class="btn secondary" style="padding:2px 8px;font-size:12px">Mark resolved</button></form>{% endif %}</li>{% endfor %}</ul></div></div>
-{% endfor %}
-{% if blockers and can('compose') %}<form method="post" action="/proofs/{{ p.id }}/triage/override" style="margin-top:10px"><label>Override the {{ blockers|length }} open blocker(s) — why? (recorded on the proof)</label><input type="text" name="reason" required><p><button class="btn danger">Override and allow composing</button></p></form>{% endif %}
-{% if can('send') %}<details style="margin-top:8px"><summary>Send this report to the customer</summary><form method="post" action="/proofs/{{ p.id }}/triage/share"><label>Message (optional)</label><textarea name="message" placeholder="Your logo will work well at 4 in. The tagline under it is too small to stitch — we suggest dropping it or making the whole logo bigger."></textarea><p><button class="btn secondary">Send report link</button></p></form></details>{% endif %}
-</div>
+{% include "_tracker.html" %}
+
+{# ---- What's next: one callout, one primary action ---- #}
+<div class="next {{ stage.tone if stage.tone != 'neutral' else '' }}">
+<div class="text"><b>{{ stage.headline }}</b><span>{{ stage.next_hint }}</span></div>
+<div class="actions">
+{% if stage.next_kind == 'send' and current and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/send"><button class="btn primary">Send proof to {{ p.contact.display_name or p.contact.email or 'customer' }}</button></form>
+{% elif stage.next_kind == 'resend' and current and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn primary">{{ stage.next_action }}</button></form>
+{% elif stage.next_kind == 'compose' and can('compose') %}<a class="btn primary" href="/proofs/{{ p.id }}/compose">{{ stage.next_action }}</a>
+{% elif stage.next_kind == 'release' and can('release') %}<form method="post" action="/proofs/{{ p.id }}/release"><button class="btn primary">Release to production</button></form>
+{% elif stage.next_kind == 'complete' and can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn primary">Mark as sewn</button></form>
+{% elif stage.next_kind == 'core' %}<a class="btn primary" href="{{ CORE_WEB_APP_URL }}" target="_blank">Open PiperStitch ↗</a>
+{% elif stage.next_kind == 'intake' and can('send') %}<a class="btn primary" href="#artwork">{{ stage.next_action }}</a>
+{% elif stage.next_kind == 'review' and current and can('send') and current.composed_by != m.user_id %}<form method="post" action="/proofs/{{ p.id }}/review/pass"><button class="btn primary">Looks good — pass it</button></form>
+{% elif stage.next_kind == 'triage' %}<a class="btn primary" href="#readiness">See the report</a>
+{% elif stage.next_kind == 'none' and current and can('send') and current.status in ('sent','viewed') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn">Send a fresh link</button></form><form method="post" action="/proofs/{{ p.id }}/snooze"><input type="hidden" name="days" value="3"><button class="btn ghost" title="No automatic reminders to the customer for 3 days">Snooze reminders 3 days</button></form>
 {% endif %}
+<span class="waiting {{ stage.waiting_on }}">{{ {'you': 'Waiting on you', 'customer': 'Waiting on the customer', 'colleague': 'Waiting on a colleague', 'nobody': 'Nothing to do'}[stage.waiting_on] }}</span>
+</div></div>
+
+{# ---- Artwork & readiness ---- #}
+{% if reports or answers or not current %}
+<div class="panel" id="artwork"><h3>Artwork{% if reports %} &amp; Art Readiness Report{% endif %}</h3>
+{% if answers %}<table class="specs" style="margin-bottom:8px">{% for a in answers %}<tr><td>{{ questions.get(a.field, a.field) }}</td><td>{{ a.value }}</td></tr>{% endfor %}</table>{% endif %}
+{% for r in reports %}
+<div class="row" id="readiness" style="border-top:1px solid var(--rowline);padding-top:10px;margin-top:6px"><div style="flex:0 0 150px;min-width:150px">{% if r.preview_storage_key %}<div class="render"><img src="/proofs/{{ p.id }}/files/{{ r.file_id }}?preview=1" alt=""></div>{% endif %}<p class="hint"><a href="/proofs/{{ p.id }}/files/{{ r.file_id }}">{{ r.file.original_filename }}</a><br>{{ (r.file.bytes / 1024)|round|int }} KB</p></div>
+<div style="flex:1"><p class="muted" style="font-size:13px">{{ 'Vector' if r.is_vector else r.kind|capitalize }}{% if r.effective_ppi %} · {{ '%.0f'|format(r.effective_ppi) }} PPI at {{ '%.1f'|format(r.requested_width_mm / 25.4) }} in{% endif %}{% if r.color_count %} · {{ r.color_count }} colours{% endif %}{% if r.min_feature_mm %} · finest detail {{ '%.1f'|format(r.min_feature_mm) }} mm{% endif %}</p>
+{% for f in r.findings %}<div class="finding"><span class="badge {% if f.severity == 'blocker' and f.status == 'open' %}bad{% elif f.severity == 'warning' %}warn{% elif f.status != 'open' %}good{% endif %}">{{ f.status if f.status != 'open' else f.severity }}</span> <b>{{ f.title }}</b> — {{ f.message }}{% if f.suggested_fix %} <span class="fix">{{ f.suggested_fix }}</span>{% endif %}
+{% if f.severity == 'blocker' and f.status == 'open' and can('compose') %}<form method="post" action="/proofs/{{ p.id }}/triage/{{ f.id }}/resolve" style="display:inline;margin-left:6px"><button class="btn small" title="You've dealt with this (better file, redrew it, agreed with the customer)">Mark resolved</button></form>{% endif %}</div>{% endfor %}</div></div>
+{% endfor %}
+{% if blockers %}<p class="hint" style="margin-top:8px"><b style="color:var(--warnText)">Composing is blocked</b> until the {{ blockers|length }} open blocker{{ '' if blockers|length == 1 else 's' }} above {{ 'is' if blockers|length == 1 else 'are' }} resolved or overridden.</p>
+{% if can('compose') %}<form method="post" action="/proofs/{{ p.id }}/triage/override" class="row" style="align-items:flex-end"><div><label>Override — why? (recorded on the job)</label><input type="text" name="reason" required placeholder="Customer accepts the small text may fill in"></div><div style="flex:0"><button class="btn danger" style="white-space:nowrap">Override and continue</button></div></form>{% endif %}{% endif %}
+{% if reports and can('send') %}<details style="margin-top:8px"><summary>Send this report to the customer</summary><form method="post" action="/proofs/{{ p.id }}/triage/share"><p class="hint">They get a plain-language page: what works, what won't stitch, and what to send instead.</p><label>Add a note (optional)</label><textarea name="message" placeholder="Your logo will work well at 4 in. The tagline under it is too small to stitch — we suggest dropping it or making the whole logo bigger."></textarea><p><button class="btn">Send report link</button></p></form></details>{% endif %}
 
 {% if p.core_project_id and not current %}
-<div class="card"><h2>Digitized in PiperStitch</h2><p>This artwork was digitized as the PiperStitch project <b>{{ p.core_project_name or p.core_project_id }}</b> in your account. Open it in PiperStitch to check the stitches and tweak anything, save, then compose the proof from it.</p>
-<p><a class="btn secondary" href="{{ CORE_WEB_APP_URL }}" target="_blank">Open PiperStitch</a> {% if can('compose') and not blockers %}<a class="btn" href="/proofs/{{ p.id }}/compose">Compose version 1</a>{% endif %}</p></div>
+<div style="border-top:1px solid var(--rowline);padding-top:10px;margin-top:10px"><p><b>Digitized in PiperStitch</b> as project <b>{{ p.core_project_name or p.core_project_id }}</b> in your account. Open it there to check the stitches and tweak anything, save, then build the proof from it.</p>
+<div class="actions"><a class="btn" href="{{ CORE_WEB_APP_URL }}" target="_blank">Open PiperStitch ↗</a>{% if can('compose') and not blockers %}<a class="btn primary" href="/proofs/{{ p.id }}/compose">Build the proof</a>{% endif %}</div></div>
 {% endif %}
+
 {% if not current %}
-<div class="card">
-{% if p.status == 'awaiting_art' %}<p>Waiting for the customer's artwork (intake link sent{% if p.intake_expires_at %}, valid until {{ p.intake_expires_at[:10] }}{% endif %}).</p>
-{% elif p.status == 'intake_expired' %}<p>The intake link expired without artwork.</p>{% else %}<p>No version yet.</p>{% endif %}
-{% if can('send') and p.contact.email %}<form method="post" action="/proofs/{{ p.id }}/intake/send"><label>Ask {{ p.contact.display_name or p.contact.email }} for artwork — the request goes to <b>{{ p.contact.email }}</b></label><input type="text" name="message" placeholder="A personal note to include (optional), e.g. “Send the file your designer made if you have it.”"><p><button class="btn secondary">{{ 'Resend the artwork request' if p.status in ('awaiting_art','intake_expired') else 'Send the artwork request' }}</button></p></form>{% endif %}
-{% if can('compose') %}<form method="post" action="/proofs/{{ p.id }}/intake/upload" enctype="multipart/form-data"><label>Or upload the artwork yourself</label><input type="file" name="files" multiple><div class="row"><div><label>Finished width</label><input type="number" step="0.25" name="requested_width" value="{{ '%.2f'|format(p.requested_width_mm / 25.4) if p.requested_width_mm else '3.5' }}"></div><div><label>Units</label><select name="width_units"><option value="in">inches</option><option value="mm">mm</option></select></div><div><label>On a cap?</label><select name="is_cap"><option value="no">No</option><option value="yes">Yes</option></select></div></div><p><button class="btn secondary">Add and triage</button></p></form>
-{% if blockers %}<p class="stamp">Composing is blocked until the blockers above are resolved or overridden.</p>{% else %}<a class="btn" href="/proofs/{{ p.id }}/compose">Compose version 1</a>{% endif %}{% endif %}
+<div class="grid2" style="margin-top:12px;border-top:1px solid var(--rowline);padding-top:10px">
+{% if can('send') and p.contact.email %}<form method="post" action="/proofs/{{ p.id }}/intake/send"><b style="color:var(--navy800)">{{ 'Send the artwork request again' if p.status in ('awaiting_art','intake_expired') else 'Ask the customer for artwork' }}</b>
+<p class="hint">Emails <b>{{ p.contact.email }}</b> a private upload link with a few questions (size, garment, deadline). Reminders follow automatically.{% if p.status == 'awaiting_art' and p.intake_expires_at %} Current link valid until {{ p.intake_expires_at[:10] }}.{% endif %}</p>
+<label>Personal note (optional)</label><input type="text" name="message" placeholder="Send the file your designer made if you have it."><p><button class="btn {{ 'primary' if stage.next_kind == 'intake' else '' }}">{{ 'Resend the artwork request' if p.status in ('awaiting_art','intake_expired') else 'Send the artwork request' }}</button></p></form>{% endif %}
+{% if can('compose') %}<form method="post" action="/proofs/{{ p.id }}/intake/upload" enctype="multipart/form-data"><b style="color:var(--navy800)">Or upload the artwork yourself</b>
+<p class="hint">We check it (resolution, colours, fine detail) and digitize a first pass into your PiperStitch account.</p>
+<label>Files</label><input type="file" name="files" multiple><div class="row"><div><label>Finished width</label><input type="number" step="0.25" name="requested_width" value="{{ '%.2f'|format(p.requested_width_mm / 25.4) if p.requested_width_mm else '3.5' }}"></div><div><label>Units</label><select name="width_units"><option value="in">inches</option><option value="mm">mm</option></select></div><div><label>On a cap?</label><select name="is_cap"><option value="no">No</option><option value="yes">Yes</option></select></div></div><p><button class="btn">Upload and check</button></p></form>{% endif %}
 </div>
-{% else %}
-<div class="card">
-<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><h2 style="margin:0">Version {{ current.version_number }} of {{ versions|length }}</h2><span class="badge {% if current.status in ('approved','approved_with_notes') %}ok{% elif current.status in ('changes_requested','expired','declined') %}warn{% endif %}">{{ current.status.replace('_',' ') }}</span>{% if current.sent_at %}<span class="stamp">sent {{ current.sent_at|dt }} · responds by {{ current.response_expires_at[:10] }}</span>{% endif %}</div>
-{% if current.change_summary %}<p class="stamp">What changed: {{ current.change_summary }}</p>{% endif %}
-<div class="row" style="margin-top:10px">
-<div style="flex:2"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/{{ 'mockup.png' if current.artifact_hashes.mockup else 'render.png' }}" alt="Proof"></div>
-{% if current.artifact_hashes.mockup %}<div class="row" style="margin-top:8px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/render.png" alt="Stitch render"></div><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/diagram.png" alt="Placement"></div></div>{% endif %}</div>
-<div style="flex:1">
+{% endif %}
+</div>
+{% endif %}
+
+{# ---- The proof itself ---- #}
+{% if current %}
+<div class="panel">
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><h3 style="margin:0">Version {{ current.version_number }} of {{ versions|length }}</h3><span class="badge {% if current.status in ('approved','approved_with_notes') %}good{% elif current.status in ('changes_requested','expired','declined') %}warn{% elif current.status == 'ready_to_send' %}{% else %}neutral{% endif %}">{{ current.status.replace('_',' ') }}</span>{% if current.sent_at %}<span class="hint">sent {{ current.sent_at|dt }} · customer has until {{ current.response_expires_at[:10] }}</span>{% endif %}</div>
+{% if current.change_summary %}<p class="hint" style="margin-bottom:8px">What changed from the last version: {{ current.change_summary }}</p>{% endif %}
+{% if current.review_note %}<div class="flash warn">Reviewer's note: {{ current.review_note }}</div>{% endif %}
+<div class="row">
+<div style="flex:2;min-width:280px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/{{ 'mockup.png' if current.artifact_hashes.mockup else 'render.png' }}" alt="Proof"></div>
+{% if current.artifact_hashes.mockup %}<div class="row" style="margin-top:8px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/render.png" alt="Stitch render" title="Rendered from the actual machine file"></div><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/diagram.png" alt="Placement" title="Measured placement"></div></div>{% endif %}
+{% if current.colorways %}<div class="row" style="margin-top:8px">{% for cw in current.colorways %}<div style="flex:0 0 150px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/cw{{ cw.ordinal }}-render.png" alt=""></div><p class="hint" style="text-align:center">{{ cw.ordinal }}. {{ cw.name }}{% if approval and approval.colorway_id == cw.id %} <span class="badge good">chosen</span>{% endif %}</p></div>{% endfor %}</div>{% endif %}</div>
+<div style="flex:1;min-width:240px">
 <table class="specs">
-<tr><td>Size</td><td>{{ current.width_mm|inches }} × {{ current.height_mm|inches }} in<br><span class="stamp">{{ '%.2f'|format(current.width_mm) }} × {{ '%.2f'|format(current.height_mm) }} mm</span></td></tr>
-<tr><td>Stitches</td><td>{{ '{:,}'.format(current.stitch_count) }} · {{ current.color_change_count }} changes · {{ current.trim_count }} trims</td></tr>
+<tr><td>Size</td><td>{{ current.width_mm|inches }} × {{ current.height_mm|inches }} in <span class="hint">({{ '%.1f'|format(current.width_mm) }} × {{ '%.1f'|format(current.height_mm) }} mm)</span></td></tr>
+<tr><td>Stitches</td><td>{{ '{:,}'.format(current.stitch_count) }} · {{ current.color_change_count }} colour changes · {{ current.trim_count }} trims</td></tr>
 <tr><td>Run time</td><td>~{{ current.estimated_run_seconds|duration }} per piece</td></tr>
 <tr><td>Garment</td><td>{{ current.garment_style_name or '—' }}{% if current.garment_color %} · {{ current.garment_color }}{% endif %}</td></tr>
-<tr><td>Placement</td><td>{{ current.placement_name or '—' }}{% if current.placement_notes %}<br><span class="stamp">{{ current.placement_notes }}</span>{% endif %}</td></tr>
-<tr><td>Quantity</td><td>{{ current.quantity or 0 }}{% if current.size_breakdown %} ({% for k, v in current.size_breakdown.items() %}{{ k }}×{{ v }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}</td></tr>
+<tr><td>Placement</td><td>{{ current.placement_name or '—' }}{% if current.placement_notes %}<br><span class="hint">{{ current.placement_notes }}</span>{% endif %}</td></tr>
+<tr><td>Quantity</td><td>{{ current.quantity or 0 }}{% if current.size_breakdown %} <span class="hint">({% for k, v in current.size_breakdown.items() %}{{ k }}×{{ v }}{% if not loop.last %}, {% endif %}{% endfor %})</span>{% endif %}</td></tr>
 <tr><td>Fabric</td><td>{{ FABRIC_NAMES.get(current.fabric_code, current.fabric_code) }}</td></tr>
 </table>
-<ul class="stops" style="margin-top:8px">{% for s in current.thread_stops %}<li><span class="n">{{ s.stop_number }}</span><span class="swatch" style="background:{{ s.hex }}"></span>{{ s.thread_name }}{% if s.thread_code %} <span class="stamp">{{ s.thread_code }}</span>{% endif %}<span class="count">{{ '{:,}'.format(s.stitch_count) }}</span></li>{% endfor %}</ul>
+<p class="hint" style="margin:10px 0 2px">Thread stops, in sewing order</p>
+<ul class="stops">{% for s in current.thread_stops %}<li><span class="n">{{ s.stop_number }}</span><span class="swatch" style="background:{{ s.hex }}"></span>{{ s.thread_name }}{% if s.thread_code %} <span class="hint">{{ s.thread_code }}</span>{% endif %}<span class="count">{{ '{:,}'.format(s.stitch_count) }}</span></li>{% endfor %}</ul>
 </div></div>
-{% if current.colorways %}<div class="row" style="margin-top:8px">{% for cw in current.colorways %}<div style="flex:0 0 160px"><div class="render"><img src="/proofs/{{ p.id }}/versions/{{ current.id }}/cw{{ cw.ordinal }}-render.png" alt=""></div><p class="stamp" style="text-align:center">{{ cw.ordinal }}. {{ cw.name }}</p></div>{% endfor %}</div>{% endif %}
-{% if current.status == 'ready_to_send' and can('compose') and current.colorways|length < 3 %}
-<details style="margin-top:8px"><summary>Add an alternate colorway</summary><form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/colorways"><label>Name</label><input type="text" name="name" placeholder="On black" required>
-{% for s in current.thread_stops %}<div class="row"><div><label>Stop {{ s.stop_number }} ({{ s.thread_name }})</label><input type="color" name="hex_{{ s.stop_number }}" value="{{ s.hex }}"></div><div><label>Thread name</label><input type="text" name="name_{{ s.stop_number }}" placeholder="Madeira Polyneon 1922"></div><div><label>Code</label><input type="text" name="code_{{ s.stop_number }}"></div></div>{% endfor %}
-<p><button class="btn secondary">Build colorway</button></p></form></details>{% endif %}
-<p style="margin-top:12px"><a class="btn secondary" href="/proofs/{{ p.id }}/versions/{{ current.id }}/proof.pdf" target="_blank">Proof PDF</a>
-{% for fmt in ['dst','pes','exp','jef','vp3'] %}<a class="btn secondary" href="/proofs/{{ p.id }}/versions/{{ current.id }}/design.{{ fmt }}" style="padding:10px 10px">{{ fmt|upper }}</a> {% endfor %}
-<a class="btn secondary" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">Run ticket</a></p>
-{% if p.status not in ('released','completed') and m.account.release_gate_policy != 'off' %}<p class="stamp">Release gate: <b>{{ m.account.release_gate_policy }}</b> — {% if m.account.release_gate_policy == 'hard' %}machine files are withheld until release.{% else %}machine files download with an unapproved warning until release.{% endif %}</p>{% endif %}
 
-<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+<div class="actions" style="margin-top:12px"><a class="btn" href="/proofs/{{ p.id }}/versions/{{ current.id }}/proof.pdf" target="_blank" title="What the customer sees">Proof PDF</a>
+<span class="hint">Machine files:</span>{% for fmt in ['dst','pes','exp','jef','vp3'] %}<a class="btn small" href="/proofs/{{ p.id }}/versions/{{ current.id }}/design.{{ fmt }}">{{ fmt|upper }}</a>{% endfor %}</div>
+{% if p.status not in ('released','completed') and m.account.release_gate_policy != 'off' %}<p class="action-hint">{% if m.account.release_gate_policy == 'hard' %}Machine files are withheld until the job is released (your release-gate setting).{% else %}Machine files carry an “unapproved” warning until the job is released (your release-gate setting).{% endif %}</p>{% endif %}
+
+{# secondary actions for this version #}
+{% set secondary = [] %}
+<div class="actions" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--rowline)">
 {% if current.status == 'ready_to_send' and p.status == 'internal_review' and can('send') %}
-  {% if current.composed_by != m.user_id %}<form method="post" action="/proofs/{{ p.id }}/review/pass"><button class="btn">Pass review</button></form>
-  <form method="post" action="/proofs/{{ p.id }}/review/fail" style="display:flex;gap:6px"><input type="text" name="note" placeholder="What needs changing" required><button class="btn secondary">Send back</button></form>
-  {% else %}<span class="stamp">Waiting for someone else to review it.</span>{% endif %}
-{% elif current.status == 'ready_to_send' and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/send"><button class="btn">Send to {{ p.contact.email or 'customer' }}</button></form>
-<form method="post" action="/proofs/{{ p.id }}/review/request"><button class="btn secondary" title="Ask a colleague to check it before the customer sees it">Internal review</button></form>{% endif %}
-{% if current.review_note %}<p class="stamp" style="width:100%">Reviewer's note: {{ current.review_note }}</p>{% endif %}
-{% if current.status in ('sent','viewed','changes_requested','expired','declined') and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn secondary">Resend link</button></form>
-<form method="post" action="/proofs/{{ p.id }}/snooze"><input type="hidden" name="days" value="3"><button class="btn secondary" title="No reminders to the customer for 3 days">Snooze reminders</button></form>{% endif %}
-{% if current.status in ('changes_requested','expired','declined','approved','approved_with_notes','sent','viewed') and p.status not in ('released','completed','void') and can('compose') %}<a class="btn secondary" href="/proofs/{{ p.id }}/compose">Compose version {{ current.version_number + 1 }}</a>{% endif %}
-{% if current.status in ('approved','approved_with_notes') and p.status not in ('released','completed') and can('release') %}<form method="post" action="/proofs/{{ p.id }}/release"><button class="btn">Release to production</button></form>{% endif %}
-{% if p.status == 'released' and can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn">Mark sewn</button></form>{% endif %}
-</div>
-</div>
-
-{% if approval %}
-<div class="card"><h2>Approval</h2>
-<p>{{ approval.signer_name_typed }} ({{ approval.signer_email }}) approved {{ approval.approved_at|dt }}{% if approval.method == 'on_behalf' %} — recorded by the shop ({{ approval.on_behalf_channel }}){% endif %}.{% if approval.notes %}<br>Notes: {{ approval.notes }}{% endif %}</p>
-<p class="mono">Certificate SHA-256 {{ approval.certificate_sha256 }}</p>
-<p><a class="btn secondary" href="/verify/{{ approval.certificate_sha256 }}" target="_blank">Verify</a></p>
-</div>
+  {% if current.composed_by != m.user_id %}<form method="post" action="/proofs/{{ p.id }}/review/fail" style="display:flex;gap:6px;align-items:center"><input type="text" name="note" placeholder="What needs changing" required style="width:260px"><button class="btn">Send it back</button></form>
+  {% else %}<span class="hint">You built this version, so someone else has to pass it.</span>{% endif %}
+{% elif current.status == 'ready_to_send' and can('send') %}<form method="post" action="/proofs/{{ p.id }}/review/request"><button class="btn" title="Holds the proof until a colleague passes it">Ask a colleague to check it first</button></form>
+{% if can('compose') and current.colorways|length < 3 %}<details><summary>Add an alternate colourway</summary><form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/colorways" style="margin-top:6px"><p class="hint">The customer picks one when they approve — e.g. the same logo on black.</p><label>Name</label><input type="text" name="name" placeholder="On black" required>
+{% for s in current.thread_stops %}<div class="row"><div><label>Stop {{ s.stop_number }} ({{ s.thread_name }})</label><input type="color" name="hex_{{ s.stop_number }}" value="{{ s.hex }}"></div><div><label>Thread name</label><input type="text" name="name_{{ s.stop_number }}" placeholder="Madeira Polyneon 1922"></div><div><label>Code</label><input type="text" name="code_{{ s.stop_number }}"></div></div>{% endfor %}
+<p><button class="btn">Build colourway</button></p></form></details>{% endif %}
 {% endif %}
-
-{% if changes %}
-<div class="card"><h2>Change requests on v{{ current.version_number }}</h2><ol>{% for c in changes %}<li>{% if c.kind == 'pin' %}<span class="badge">pin {{ '%.0f'|format(c.pin_x*100) }}%, {{ '%.0f'|format(c.pin_y*100) }}%</span> {% elif c.chip_code %}<span class="badge">{{ c.chip_code.replace('_',' ') }}</span> {% endif %}{{ c.body }}</li>{% endfor %}</ol></div>
-{% endif %}
-
-<div class="card"><h2>Messages</h2>
-{% for msg in messages %}<p><b>{{ 'Customer' if msg.direction == 'inbound' else 'Shop' }}</b> <span class="stamp">{{ msg.created_at|dt }}</span><br>{{ msg.body }}</p>{% else %}<p class="stamp">No questions yet.</p>{% endfor %}
-{% if can('respond') and current.sent_at %}<form method="post" action="/proofs/{{ p.id }}/reply"><label>Reply to the customer</label><textarea name="body"></textarea><p><button class="btn secondary">Send reply</button></p></form>{% endif %}
+{% if current.status in ('changes_requested','expired','declined') and can('send') and stage.next_kind != 'resend' %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn">Send a fresh link</button></form>{% endif %}
+{% if current.status in ('sent','viewed','changes_requested','expired','declined','approved','approved_with_notes') and p.status not in ('released','completed','void') and can('compose') and stage.next_kind != 'compose' %}<a class="btn" href="/proofs/{{ p.id }}/compose" title="Build a new version from an updated PiperStitch project; the customer will see what changed">Build version {{ current.version_number + 1 }}</a>{% endif %}
+{% if current.status in ('approved','approved_with_notes') and p.status not in ('released','completed') and can('release') and stage.next_kind != 'release' %}<form method="post" action="/proofs/{{ p.id }}/release"><button class="btn">Release to production</button></form>{% endif %}
+{% if p.status == 'released' and can('complete') and stage.next_kind != 'complete' %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn">Mark as sewn</button></form>{% endif %}
+</div>
 </div>
 
+{# ---- Customer response ---- #}
+{% if approval or changes or messages or (can('respond') and current.sent_at) or (can('on_behalf') and current.status in ('sent','viewed','changes_requested')) %}
+<div class="panel"><h3>Customer response</h3>
+{% if approval %}<div class="flash" style="margin-bottom:10px"><b>Approved</b> by {{ approval.signer_name_typed }} ({{ approval.signer_email }}) on {{ approval.approved_at|dt }}{% if approval.method == 'on_behalf' %} — recorded by the shop ({{ approval.on_behalf_channel.replace('_',' ') }}){% endif %}.{% if approval.notes %}<br>Notes: {{ approval.notes }}{% endif %}<br><span class="hint">Certificate <span class="mono">{{ approval.certificate_sha256[:16] }}…</span> · <a href="/verify/{{ approval.certificate_sha256 }}" target="_blank">verify</a></span></div>{% endif %}
+{% if changes %}<p><b>Changes requested on v{{ current.version_number }}</b></p><ol style="margin:4px 0 10px 18px">{% for c in changes %}<li>{% if c.kind == 'pin' %}<span class="badge">pin at {{ '%.0f'|format(c.pin_x*100) }}%, {{ '%.0f'|format(c.pin_y*100) }}%</span> {% elif c.chip_code %}<span class="badge">{{ c.chip_code.replace('_',' ') }}</span> {% endif %}{{ c.body }}</li>{% endfor %}</ol>{% endif %}
+{% for msg in messages %}<p style="margin:0 0 8px"><b>{{ 'Customer' if msg.direction == 'inbound' else 'You' }}</b> <span class="hint">{{ msg.created_at|dt }}</span><br>{{ msg.body }}</p>{% endfor %}
+{% if can('respond') and current.sent_at %}<form method="post" action="/proofs/{{ p.id }}/reply"><label>Reply to {{ p.contact.display_name or 'the customer' }} <span class="hint">(they get it by email and it shows on their proof page)</span></label><textarea name="body"></textarea><p><button class="btn">Send reply</button></p></form>{% endif %}
 {% if can('on_behalf') and current.status in ('sent','viewed','changes_requested') %}
-<details class="card"><summary>Record an approval on the customer's behalf (phone / in person)</summary>
-<form method="post" action="/proofs/{{ p.id }}/approve-on-behalf"><div class="row"><div><label>Customer's name</label><input type="text" name="signer_name" required></div><div><label>How they approved</label><select name="channel"><option value="phone">Phone call</option><option value="in_person">In person</option><option value="text">Text message</option><option value="email">Email</option></select></div></div>
-<label>Evidence (what they said, when)</label><input type="text" name="evidence" placeholder="Called 2:10pm, said 'go ahead with the navy'"><label>Notes</label><input type="text" name="notes"><p><button class="btn">Record approval</button></p></form></details>
+<details style="margin-top:8px"><summary>They approved by phone or in person — record it</summary>
+<form method="post" action="/proofs/{{ p.id }}/approve-on-behalf"><p class="hint">Recorded as an on-behalf approval with your name and what they said; the certificate says so.</p><div class="row"><div><label>Customer's name</label><input type="text" name="signer_name" required></div><div><label>How they approved</label><select name="channel"><option value="phone">Phone call</option><option value="in_person">In person</option><option value="text">Text message</option><option value="email">Email</option></select></div></div>
+<label>What they said, and when</label><input type="text" name="evidence" placeholder="Called 2:10pm, said 'go ahead with the navy'"><label>Notes</label><input type="text" name="notes"><p><button class="btn primary">Record approval</button></p></form></details>
+{% endif %}
+</div>
+{% endif %}
+
+{# ---- Production ---- #}
+{% if p.status in ('approved','approved_with_notes','released','completed') %}
+<div class="panel"><h3>Production</h3>
+<div class="actions"><a class="btn" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">Run ticket PDF</a><span class="hint">Everything the stitcher needs on one page: thread stops, placement, quantity by size, hoop, file hashes.{% if p.status not in ('released','completed') %} It's marked “not cleared” until you release.{% endif %}</span></div>
+{% if p.released_at %}<p class="hint" style="margin-top:8px">Released {{ p.released_at|dt }}{% if p.completed_at %} · sewn {{ p.completed_at|dt }}{% endif %}</p>{% endif %}
+</div>
 {% endif %}
 {% endif %}
 
-{% if p.status not in ('void','completed') and can('void') %}
-<details class="card"><summary>Void this proof</summary><form method="post" action="/proofs/{{ p.id }}/void"><label>Reason</label><input type="text" name="reason"><p><button class="btn danger">Void</button></p></form></details>
-{% endif %}
-
-<details class="card"><summary>Evidence chain ({{ chain|length }} events, {% if chain_ok %}verified{% else %}BROKEN: {{ chain_msg }}{% endif %})</summary>
-<ol class="events">{% for e in chain %}<li>#{{ e.sequence }} {{ e.occurred_at|dt }} <b>{{ e.event_type }}</b> by {{ e.actor_type }}{% if e.ip %} from {{ e.ip }}{% endif %} <span class="mono">{{ e.event_hash[:16] }}…</span></li>{% endfor %}</ol></details>
-
-{% if versions|length > 1 %}<details class="card"><summary>All versions</summary><ul>{% for v in versions %}<li>v{{ v.version_number }} — {{ v.status.replace('_',' ') }} · composed {{ v.composed_at|dt }} · <a href="/proofs/{{ p.id }}/versions/{{ v.id }}/proof.pdf" target="_blank">PDF</a></li>{% endfor %}</ul></details>{% endif %}
+{# ---- Record ---- #}
+<details class="panel"><summary>Record — {{ chain|length }} events, {% if chain_ok %}chain verified{% else %}<span style="color:var(--critText)">CHAIN BROKEN: {{ chain_msg }}</span>{% endif %}{% if versions|length > 1 %} · {{ versions|length }} versions{% endif %}</summary>
+{% if versions|length > 1 %}<p style="margin:8px 0 4px"><b>Versions</b></p><ul style="margin:0 0 8px 18px;font-size:13px">{% for v in versions %}<li>v{{ v.version_number }} — {{ v.status.replace('_',' ') }} · built {{ v.composed_at|dt }} · <a href="/proofs/{{ p.id }}/versions/{{ v.id }}/proof.pdf" target="_blank">PDF</a></li>{% endfor %}</ul>{% endif %}
+<p class="hint">Every action on this job is hash-chained; the certificate and verification page rely on it.</p>
+<ol class="events">{% for e in chain %}<li>#{{ e.sequence }} {{ e.occurred_at|dt }} <b>{{ e.event_type }}</b> by {{ e.actor_type }}{% if e.ip %} from {{ e.ip }}{% endif %} <span class="mono">{{ e.event_hash[:12] }}…</span></li>{% endfor %}</ol>
+{% if p.status not in ('void','completed') and can('void') %}<form method="post" action="/proofs/{{ p.id }}/void" class="row" style="align-items:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid var(--rowline)"><div><label>Cancel this job — reason <span class="hint">(links stop working; the record stays)</span></label><input type="text" name="reason"></div><div style="flex:0"><button class="btn danger" style="white-space:nowrap">Cancel this job</button></div></form>{% endif %}
+</details>
 {% endblock %}

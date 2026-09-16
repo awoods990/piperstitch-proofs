@@ -1,17 +1,48 @@
 {% extends "shop_base.html" %}
+{% set nav = 'board' %}
 {% block content %}
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><h1 style="margin:0">Pipeline</h1><span class="spacer" style="flex:1"></span>
-{% if not ent.proofs_enabled %}<span class="badge {% if ent.can_send %}warn{% else %}bad{% endif %}">{{ ent.free_proofs_granted - ent.free_proofs_used }} free proof{{ '' if ent.free_proofs_granted - ent.free_proofs_used == 1 else 's' }} left</span>{% endif %}
-{% if m.role != 'stitcher' %}<a class="btn" href="/proofs/new">New proof</a>{% endif %}</div>
-{% if not m.account.shop_name %}<div class="flash error">Before you send anything: <a href="/settings">set your shop name in Settings</a> — it's what customers see your proofs and emails coming from.</div>{% endif %}
-{% if inbound %}<div class="card"><h3>{{ inbound|length }} email{{ '' if inbound|length == 1 else 's' }} waiting to be accepted</h3>{% for e in inbound %}<div class="row" style="align-items:center;border-top:1px solid var(--line);padding:8px 0"><div><b>{{ e.from_name or e.from_email }}</b> <span class="stamp">{{ e.from_email }} · {{ e.received_at|dt }}{% if e.status == 'rate_limited' %} · held: {{ e.reason }}{% endif %}</span><br>{{ e.subject or '(no subject)' }} <span class="stamp">· {{ (e.attachments_json|length > 2) and 'with attachments' or 'no attachments' }}</span></div><div style="flex:0;display:flex;gap:6px"><form method="post" action="/inbound/{{ e.id }}/accept"><button class="btn" style="padding:6px 10px">Accept</button></form><form method="post" action="/inbound/{{ e.id }}/reject"><button class="btn secondary" style="padding:6px 10px">Reject</button></form></div></div>{% endfor %}</div>{% endif %}
-{% if bounced %}<div class="flash error">Email bounced on {% for b in bounced %}<a href="/proofs/{{ b.id }}">{{ b.reference }}</a>{% if not loop.last %}, {% endif %}{% endfor %} — check the address and resend.</div>{% endif %}
-<div class="board">
-{% for label, items in columns %}
-<div class="col"><h3>{{ label }} ({{ items|length }})</h3>
-{% for p in items %}<a class="tile" href="/proofs/{{ p.id }}"><div class="ref">{{ p.reference }} · <span class="badge">{{ p.status.replace('_',' ') }}</span></div><div class="title">{{ p.title }}</div><div class="who">{{ p.contact.display_name or p.contact.email }}</div></a>{% endfor %}
-{% if not items %}<div class="stamp">Nothing here.</div>{% endif %}
+{% if not m.account.shop_name %}<div class="flash error">Before you send anything, <a href="/settings">set your shop name in Settings</a> — it's what customers see your proofs and emails coming from.</div>{% endif %}
+{% if bounced %}<div class="flash error">Email bounced on {% for b in bounced %}<a href="/proofs/{{ b.id }}">{{ b.reference }}</a>{% if not loop.last %}, {% endif %}{% endfor %} — check the address and send a fresh link.</div>{% endif %}
+
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h1>Jobs</h1><span class="grow" style="flex:1"></span>
+{% if not ent.proofs_enabled %}<a href="/settings" class="badge {{ 'warn' if ent.can_send else 'bad' }}" title="Unlimited proofs are part of the Proofs plan">{{ ent.free_proofs_granted - ent.free_proofs_used }} free proof{{ '' if ent.free_proofs_granted - ent.free_proofs_used == 1 else 's' }} left</a>{% endif %}
+{% if m.role != 'stitcher' %}<a class="btn primary" href="/proofs/new">New job</a>{% endif %}</div>
+
+<div class="dash">
+<a href="?show=you"><div class="tile you"><b>{{ counts.you }}</b><span>waiting on you</span></div></a>
+<a href="?show=customer"><div class="tile"><b>{{ counts.customer }}</b><span>waiting on customers</span></div></a>
+<a href="?show=late"><div class="tile {{ 'late' if counts.late else '' }}"><b>{{ counts.late }}</b><span>quiet 4+ days</span></div></a>
+<a href="?show=production"><div class="tile"><b>{{ counts.production }}</b><span>in production</span></div></a>
+<a href="?show=done"><div class="tile"><b>{{ counts.done }}</b><span>done this month</span></div></a>
 </div>
+
+{% if inbound %}<div class="panel"><h3>{{ inbound|length }} email{{ '' if inbound|length == 1 else 's' }} waiting to be accepted</h3>
+<p class="hint" style="margin-bottom:8px">Artwork emailed to {{ art_address or 'your art address' }} from someone new. Accepting creates the job and the customer; rejecting drops the message.</p>
+{% for e in inbound %}<div class="row" style="align-items:center;border-top:1px solid var(--rowline);padding:8px 0"><div><b>{{ e.from_name or e.from_email }}</b> <span class="hint">{{ e.from_email }} · {{ e.received_at|dt }}{% if e.status == 'rate_limited' %} · held: {{ e.reason }}{% endif %}</span><br>{{ e.subject or '(no subject)' }}</div><div style="flex:0;display:flex;gap:6px"><form method="post" action="/inbound/{{ e.id }}/accept"><button class="btn primary small">Accept</button></form><form method="post" action="/inbound/{{ e.id }}/reject"><button class="btn small">Reject</button></form></div></div>{% endfor %}</div>{% endif %}
+
+<div class="filters">
+<form method="get" action="/proofs">
+<input type="text" name="q" value="{{ q or '' }}" placeholder="Search customer, company or job…" aria-label="Search">
+<select name="show" onchange="this.form.submit()"><option value="active" {% if show == 'active' %}selected{% endif %}>Active jobs</option><option value="you" {% if show == 'you' %}selected{% endif %}>Waiting on you</option><option value="customer" {% if show == 'customer' %}selected{% endif %}>Waiting on customers</option><option value="late" {% if show == 'late' %}selected{% endif %}>Quiet 4+ days</option><option value="production" {% if show == 'production' %}selected{% endif %}>In production</option><option value="done" {% if show == 'done' %}selected{% endif %}>Done &amp; cancelled</option><option value="all" {% if show == 'all' %}selected{% endif %}>Everything</option></select>
+<button class="btn small">Filter</button></form>
+</div>
+
+{% if rows %}
+<table class="jobs">
+<thead><tr><th>Customer</th><th>Job</th><th>Progress</th><th>Where it stands</th><th class="right">Waiting on</th></tr></thead>
+<tbody>
+{% for p, stage in rows %}
+<tr>
+<td class="who">{{ p.contact.display_name or p.contact.email }}{% if p.contact.company_name %}<small>{{ p.contact.company_name }}</small>{% endif %}</td>
+<td><a class="title" href="/proofs/{{ p.id }}">{{ p.title }}</a><div class="ref">{{ p.reference }}{% if p.due_date %} · due {{ p.due_date }}{% endif %}</div></td>
+<td>{% with mini=True %}{% include "_tracker.html" %}{% endwith %}</td>
+<td><span class="{{ 'muted' if stage.tone == 'neutral' else '' }}" style="{% if stage.tone == 'warn' %}color:var(--warnText){% elif stage.tone == 'bad' %}color:var(--critText){% elif stage.tone == 'good' %}color:var(--readyText){% endif %}">{{ stage.headline }}</span></td>
+<td class="right"><span class="waiting {{ stage.waiting_on }}">{{ {'you': 'You', 'customer': 'Customer', 'colleague': 'Colleague', 'nobody': '—'}[stage.waiting_on] }}</span></td>
+</tr>
 {% endfor %}
-</div>
+</tbody></table>
+{% else %}
+<div class="panel" style="text-align:center;padding:36px 20px"><p style="font-size:16px;color:var(--navy800);font-weight:600;margin-bottom:4px">{% if q or show not in ('active', 'all') %}Nothing matches.{% else %}No jobs yet.{% endif %}</p><p class="muted">{% if q or show not in ('active','all') %}<a href="/proofs">Show active jobs</a>{% else %}Start with <a href="/proofs/new">New job</a>: ask a customer for artwork, or bring a design you've already digitized in PiperStitch.{% endif %}</p></div>
+{% endif %}
+<p class="hint" style="margin-top:12px">Each job walks the same six steps: artwork → digitized → proof sent → approved → released → sewn. Blue means it's your move; amber means it's been quiet.</p>
 {% endblock %}

@@ -1,0 +1,4 @@
+{# usage: {% include "_tracker.html" with context %} expecting `stage` and optional `mini` #}
+<div class="tracker {{ 'mini' if mini else '' }}" title="Artwork → Digitized → Proof sent → Approved → Released → Sewn">
+{% for label in STEPS %}<div class="step {{ stage.step_states[loop.index0] }}"><div class="dot">{% if stage.step_states[loop.index0] == 'done' %}✓{% endif %}</div>{% if not mini %}{{ label }}{% endif %}</div>{% endfor %}
+</div>

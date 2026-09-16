@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block wrapclass %}narrow{% endblock %}
 {% block content %}
-<div class="card" style="margin-top:40px">
+<div class="panel" style="margin-top:40px">
 {% if reason == 'void' %}<h1>This proof was cancelled</h1><p>The shop cancelled this proof. If you think that's a mistake, contact them directly.</p>
 {% elif reason == 'revoked' %}<h1>This link has been replaced</h1><p>A newer version of this proof was sent to you — check your email for the latest link.</p>
 {% elif reason == 'expired' %}<h1>This link has expired</h1><p>Ask the shop to resend the proof and you'll get a fresh link.</p>

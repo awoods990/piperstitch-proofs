@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ account.shop_name or 'Your embroiderer' }} — send your artwork{% endblock %}
 {% block wrapclass %}narrow{% endblock %}
-{% block header %}<header class="top" style="border-top:4px solid {{ account.brand_color }}"><div class="wrap"><span class="brand">{{ account.shop_name or 'Your embroiderer' }}</span><span class="spacer"></span><span class="stamp">{{ p.reference }}</span></div></header>{% endblock %}
+{% block header %}<header class="custbar" style="border-top-color:{{ account.brand_color }}"><div class="wrap"><span class="shop">{{ account.shop_name or 'Your embroiderer' }}</span><span style="flex:1"></span><span class="hint">{{ p.reference }}</span></div></header>{% endblock %}
 {% block content %}
 <h1>Send us your artwork</h1>
-<p class="stamp">For <b>{{ p.title }}</b>. Upload the best file you have — the original from your designer is ideal, but a phone photo of a card works too. We'll tell you straight away if anything about it will be a problem for embroidery.</p>
-<form method="post" action="/i/{{ token }}" enctype="multipart/form-data" class="card">
+<p class="hint">For <b>{{ p.title }}</b>. Upload the best file you have — the original from your designer is ideal, but a phone photo of a card works too. We'll tell you straight away if anything about it will be a problem for embroidery.</p>
+<form method="post" action="/i/{{ token }}" enctype="multipart/form-data" class="panel">
 <label>Artwork files</label>
 <input type="file" name="files" multiple accept=".{{ accepted.replace(', ', ',.') }}" required>
-<p class="stamp">PNG, JPG, SVG, PDF, or an existing embroidery file (DST, PES…). Up to 400 MB each.</p>
+<p class="hint">PNG, JPG, SVG, PDF, or an existing embroidery file (DST, PES…). Up to 400 MB each.</p>
 {% for field, prompt, kind, hint in questions %}
 <label>{{ prompt }}</label>
 {% if kind == 'textarea' %}<textarea name="{{ field }}" placeholder="{{ hint }}"></textarea>
@@ -18,7 +18,7 @@
 {% endfor %}
 <label>Mobile number (optional)</label><input type="text" name="phone" value="{{ contact.phone }}" placeholder="for a text when the proof is ready">
 <label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink2)"><input type="checkbox" name="sms_consent" value="yes" style="margin-top:3px"><span>I agree to receive text messages about this order from {{ account.shop_name or 'the shop' }}. Message and data rates may apply. Reply STOP to opt out.</span></label>
-<p><button class="btn big">Send artwork</button></p>
+<p><button class="btn primary big">Send artwork</button></p>
 </form>
-<p class="stamp">Questions? Contact {{ account.shop_name or 'the shop' }}{% if account.reply_to_email %} at {{ account.reply_to_email }}{% endif %}.</p>
+<p class="hint">Questions? Contact {{ account.shop_name or 'the shop' }}{% if account.reply_to_email %} at {{ account.reply_to_email }}{% endif %}.</p>
 {% endblock %}
