@@ -51,6 +51,8 @@ class Account(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     core_customer_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, nullable=True)
     shop_name: Mapped[str] = mapped_column(String, default="")
+    # art@{slug}.piperstitch.com -- unique, immutable once issued.
+    slug: Mapped[Optional[str]] = mapped_column(String, unique=True, nullable=True)
     reply_to_email: Mapped[str] = mapped_column(String, default="")
     phone: Mapped[str] = mapped_column(String, default="")
     brand_color: Mapped[str] = mapped_column(String, default="#2c6e8f")
@@ -356,6 +358,30 @@ class IntakeAnswer(Base):
     field: Mapped[str] = mapped_column(String)
     value: Mapped[str] = mapped_column(Text, default="")
     submitted_at: Mapped[str] = mapped_column(String, default=utcnow)
+
+
+# --- email ingest ---------------------------------------------------------------------------
+
+class InboundEmail(Base):
+    """One message received at art@{slug}: accepted into a proof, held in
+    quarantine (unknown sender), or rejected (authentication failed)."""
+    __tablename__ = "inbound_email"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    account_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    provider_message_id: Mapped[str] = mapped_column(String, default="")
+    from_email: Mapped[str] = mapped_column(String, default="")
+    from_name: Mapped[str] = mapped_column(String, default="")
+    to_address: Mapped[str] = mapped_column(String, default="")
+    subject: Mapped[str] = mapped_column(String, default="")
+    body_text: Mapped[str] = mapped_column(Text, default="")
+    auth_result: Mapped[str] = mapped_column(String, default="")   # dkim=pass … as seen
+    status: Mapped[str] = mapped_column(String, default="quarantined")  # accepted | quarantined | rejected | rate_limited
+    reason: Mapped[str] = mapped_column(String, default="")
+    attachments_json: Mapped[str] = mapped_column(Text, default="[]")  # [{name, storage_key, bytes, mime}]
+    proof_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    received_at: Mapped[str] = mapped_column(String, default=utcnow)
+    decided_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    decided_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
 # --- the chase engine ------------------------------------------------------------------

@@ -21,8 +21,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, core_client, db as database, events, garments, intake, pdfgen, proofs, reminders, storage, stitch, texts, tokens
-from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, File, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, TriageFinding, TriageReport, User
+from . import auth, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, storage, stitch, texts, tokens
+from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Contact, File, InboundEmail, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
 
@@ -186,9 +186,11 @@ def board(request: Request, m: AccountUser = Depends(require_member), db: Sessio
         columns.append((label, [p for p in rows if p.status in states]))
     ent = proofs.entitlements(db, m.account)
     bounced = proofs.bounced_proofs(db, m.account_id)
+    inbound = ingest.queue(db, m.account_id)
     db.commit()
-    return templates.TemplateResponse(request, "board.html", {"m": m, "columns": columns, "ent": ent, "bounced": bounced, "flash": request.session.pop("flash", None),
-                                                               "error": request.session.pop("flash_error", None)})
+    return templates.TemplateResponse(request, "board.html", {"m": m, "columns": columns, "ent": ent, "bounced": bounced, "inbound": inbound,
+                                                               "art_address": f"art@{m.account.slug}.piperstitch.com" if m.account.slug else "",
+                                                               "flash": request.session.pop("flash", None), "error": request.session.pop("flash_error", None)})
 
 
 @app.get("/proofs/new", response_class=HTMLResponse)
@@ -396,6 +398,37 @@ def review_fail(request: Request, proof_id: str, note: str = Form(""), m: Accoun
     p = _load_proof(db, m, proof_id)
     v = db.get(ProofVersion, p.current_version_id)
     return _action(request, db, lambda: proofs.fail_internal_review(db, v, m.user, note=note), "Sent back with your note.", f"/proofs/{p.id}")
+
+
+@app.post("/webhooks/postmark/inbound")
+async def postmark_inbound(request: Request, db: Session = Depends(get_db)):
+    if config.WEBHOOK_TOKEN and request.query_params.get("token") != config.WEBHOOK_TOKEN:
+        raise HTTPException(401)
+    body = await request.json()
+    row = ingest.receive(db, body)
+    db.commit()
+    return {"status": row.status, "reason": row.reason, "proof_id": row.proof_id}
+
+
+@app.post("/inbound/{email_id}/accept")
+def inbound_accept(request: Request, email_id: str, m: AccountUser = Depends(require_can("create")), db: Session = Depends(get_db)):
+    row = db.get(InboundEmail, email_id)
+    if row is None or row.account_id != m.account_id:
+        raise HTTPException(404)
+    return _action(request, db, lambda: ingest.accept(db, row, m.user), "Accepted: proof created.", "/proofs")
+
+
+@app.post("/inbound/{email_id}/reject")
+def inbound_reject(request: Request, email_id: str, m: AccountUser = Depends(require_can("create")), db: Session = Depends(get_db)):
+    row = db.get(InboundEmail, email_id)
+    if row is None or row.account_id != m.account_id:
+        raise HTTPException(404)
+    return _action(request, db, lambda: ingest.reject(db, row, m.user), "Rejected.", "/proofs")
+
+
+@app.post("/settings/art-address")
+def art_address(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
+    return _action(request, db, lambda: ingest.make_slug(db, m.account), "Your art address is art@{result}.piperstitch.com", "/settings")
 
 
 @app.post("/webhooks/postmark/bounce")

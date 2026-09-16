@@ -14,6 +14,7 @@
 <label>Consent text</label><textarea name="consent_text">{{ terms.consent_text }}</textarea>
 <p><button class="btn">Save</button></p>
 </form>
+<div class="card"><h3>Art by email</h3>{% if m.account.slug %}<p>Forward customer artwork to <b>art@{{ m.account.slug }}.piperstitch.com</b>. Mail from you or from a known customer becomes a proof straight away; anyone else waits for you to accept it. Messages that fail DKIM/DMARC are rejected.</p>{% else %}<form method="post" action="/settings/art-address"><p>Get an address customers and you can email artwork to.</p><button class="btn secondary">Create my art@ address</button></form>{% endif %}</div>
 <div class="card"><h3>Plan</h3><p>{{ 'PiperStitch Proofs (paid)' if ent.proofs_enabled else 'Free: ' ~ (ent.free_proofs_granted - ent.free_proofs_used) ~ ' of ' ~ ent.free_proofs_granted ~ ' free proofs left' }} · {{ ent.seats }} seat(s)</p></div>
 <div class="card"><h3>People</h3><ul>{% for u in members %}<li>{{ u.user.email }} — {{ u.role }}{% if not u.accepted_at %} (invited){% endif %}</li>{% endfor %}</ul>
 <form method="post" action="/settings/invite"><div class="row"><div><label>Invite by email</label><input type="email" name="email" required></div><div><label>Role</label><select name="role"><option value="sales">Sales — create, compose, send, respond</option><option value="stitcher">Stitcher — read, run tickets, mark sewn</option><option value="owner">Owner — everything</option></select></div></div><p><button class="btn secondary">Invite</button></p></form></div>

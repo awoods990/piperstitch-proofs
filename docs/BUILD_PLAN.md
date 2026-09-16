@@ -29,13 +29,13 @@ triage, version compare view, colorways, SMS, reminders, sew-out log,
 estimator, thread inventory, internal review, Stripe checkout for the add-on
 (Phase 1 ships the three free proofs).
 
-## Phase 2 · Intake and iteration — in progress (16 Sep 2026)
+## Phase 2 · Intake and iteration — built (16 Sep 2026), 13 tests
 
 | PRD acceptance criterion | Status |
 |---|---|
 | Customer uploads a 12 MP phone photo of a business card; triage reports effective PPI at the requested size, detects the white background, counts colours, flags fine detail with a mm measurement | ✅ (`triage.analyze`; the "text under 5 mm" check is a measured narrowest-stroke check — glyph-level text detection is not yet done) |
-| Forwarding a customer email creates a proof with attachments extracted | ⏳ email ingest not built |
-| DKIM-failing / unknown senders rejected or quarantined | ⏳ with email ingest |
+| Forwarding a customer email creates a proof in art_received with attachments extracted, body preserved, signature images filtered | ✅ Postmark inbound webhook (`/webhooks/postmark/inbound?token=`); art@{slug}.piperstitch.com |
+| DKIM-failing messages rejected outright; DKIM-valid unknown senders quarantined, not auto-created | ✅ plus 50/account and 10/sender hourly limits, immutable near-miss-refusing slugs |
 | A blocker prevents composition until resolved or overridden; the override appears on the proof and in the event chain | ✅ |
 | Change requests land as a checklist with pins; Core overlays the pins | ✅ checklist with normalized pins (Core overlay is a later Core hook) |
 | Version compare renders v1 against v2 with a difference view on a phone | ◐ side-by-side on the proof page; slider/difference views not yet |
