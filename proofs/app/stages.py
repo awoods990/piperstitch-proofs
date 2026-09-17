@@ -18,6 +18,22 @@ from .db import Proof, ProofVersion, parse_ts
 
 STEPS = ("Artwork", "Digitized", "Proof sent", "Approved", "Released", "Sewn")
 
+# The mini-steps of building a proof, shown under the tracker between
+# "Digitized" and "Proof sent" while that's where the job is.
+BUILD_STEPS = ("Design", "Garment & placement", "Your note", "Review & send")
+
+
+def build_states(*, design_linked: bool, composing: bool, composed_unsent: bool) -> list[str]:
+    """Per BUILD_STEPS: done | current | todo. On the compose page the form
+    covers steps 1-3 at once (design is done when a project is linked);
+    on the proof page with a built, unsent version only "Review & send"
+    is left."""
+    if composed_unsent:
+        return ["done", "done", "done", "current"]
+    if composing:
+        return ["done" if design_linked else "current", "current" if design_linked else "todo", "current" if design_linked else "todo", "todo"]
+    return ["done" if design_linked else "todo", "todo", "todo", "todo"]
+
 
 @dataclass
 class Stage:

@@ -118,6 +118,44 @@ TEMPLATES: list[Template] = [
 
 TEMPLATE_BY_ID = {t.id: t for t in TEMPLATES}
 
+def suggest(fabric_code: str, width_mm: float, height_mm: float, answers: dict[str, str]) -> tuple[str, str]:
+    """A garment template and zone to preselect, so the form doesn't ask
+    what PiperStitch and the customer already said: the design's fabric
+    (a cap fabric is a cap), the customer's intake answers ("navy polo",
+    "cap front", "full back"), then the design's size (a 12-inch design
+    is a full back, a 3.5-inch one a left chest)."""
+    style = (answers.get("garment_style_name") or "").lower()
+    place = (answers.get("placement_name") or "").lower()
+    template = ""
+    for key, tid in (("trucker", "trucker_cap"), ("snapback", "flat_bill"), ("flat", "flat_bill"), ("dad", "unstructured_cap"), ("visor", "visor"),
+                     ("bucket", "bucket_hat"), ("beanie", "beanie"), ("cap", "structured_cap"), ("hat", "structured_cap"),
+                     ("hoodie", "hoodie"), ("hooded", "hoodie"), ("sweatshirt", "hoodie"), ("quarter", "quarter_zip"), ("jacket", "jacket"),
+                     ("button", "button_down"), ("oxford", "button_down"), ("polo", "polo"), ("tee", "tshirt"), ("t-shirt", "tshirt"), ("shirt", "tshirt"),
+                     ("towel", "towel"), ("tote", "tote"), ("bag", "tote"), ("apron", "apron")):
+        if key in style:
+            template = tid
+            break
+    if not template:
+        template = {"structuredCap": "structured_cap", "unstructuredCap": "unstructured_cap", "beanie": "beanie", "terry": "towel"}.get(fabric_code, "polo")
+    t = TEMPLATE_BY_ID.get(template)
+    if t is None:
+        return "", ""
+    zone_ids = [z.id for z in t.zones]
+    zone = t.default_zone
+    if "back" in place and "full_back" in zone_ids:
+        zone = "full_back"
+    elif ("front" in place and "chest" not in place) and "full_front" in zone_ids:
+        zone = "full_front"
+    elif "side" in place and "side" in zone_ids:
+        zone = "side"
+    elif t.category == "shirt":
+        if width_mm >= 230 and "full_back" in zone_ids:
+            zone = "full_back"
+        elif width_mm >= 150 and "full_front" in zone_ids:
+            zone = "full_front"
+    return template, zone
+
+
 GARMENT_COLORS: list[tuple[str, str]] = [
     ("White", "#f4f4f2"), ("Ash", "#d5d5d0"), ("Sport grey", "#9b9d9f"), ("Charcoal", "#4b4e52"), ("Black", "#1c1d20"),
     ("Navy", "#1f2d4d"), ("Royal", "#2b52a8"), ("Light blue", "#a9c7e6"), ("Red", "#b0202a"), ("Maroon", "#6b1f2c"),

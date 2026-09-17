@@ -1,0 +1,4 @@
+{# usage: {% include "_build_steps.html" %} expecting `build_states` (from stages.build_states) #}
+<div class="build-steps" title="Building the proof">
+{% for label in BUILD_STEPS %}<span class="bstep {{ build_states[loop.index0] }}"><b>{% if build_states[loop.index0] == 'done' %}✓{% else %}{{ loop.index }}{% endif %}</b>{{ label }}</span>{% if not loop.last %}<span class="barrow">›</span>{% endif %}{% endfor %}
+</div>

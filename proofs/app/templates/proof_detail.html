@@ -7,6 +7,7 @@
 <p class="muted" style="margin:2px 0 0">For <b>{{ p.contact.display_name or p.contact.email or '—' }}</b>{% if p.contact.company_name %} · {{ p.contact.company_name }}{% endif %}{% if p.contact.email %} · {{ p.contact.email }}{% endif %}{% if p.contact.phone %} · {{ p.contact.phone }}{% if p.contact.sms_opt_in_at and not p.contact.opted_out_at %} <span class="badge good" title="Opted in on the artwork form; gets links and reminders by text too">texts OK</span>{% endif %}{% endif %}</p>
 
 {% include "_tracker.html" %}
+{% if current and current.status == 'ready_to_send' %}{% include "_build_steps.html" %}{% endif %}
 
 {# ---- What's next: one callout, one primary action ---- #}
 <div class="next {{ stage.tone if stage.tone != 'neutral' else '' }}">

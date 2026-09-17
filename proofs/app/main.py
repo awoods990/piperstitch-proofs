@@ -63,7 +63,7 @@ app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static"
 templates = Jinja2Templates(directory=str(_here / "templates"))
 templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
                               "GARMENT_COLORS": garments.GARMENT_COLORS, "GARMENT_COLOR_HEX": garments.GARMENT_COLOR_HEX, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL,
-                              "STEPS": stages.STEPS, "PUBLIC_BASE_URL": config.PUBLIC_BASE_URL,
+                              "STEPS": stages.STEPS, "BUILD_STEPS": stages.BUILD_STEPS, "PUBLIC_BASE_URL": config.PUBLIC_BASE_URL,
                               "ASSET_V": str(int((_here / "static" / "proofs.css").stat().st_mtime))})
 
 
@@ -377,6 +377,8 @@ def _proof_context(db: Session, m: AccountUser, p: Proof) -> dict:
             "chain": chain, "chain_ok": chain_ok, "chain_msg": chain_msg, "can": lambda a: auth.can(m.role, a), "ent": proofs.entitlements(db, m.account),
             "reports": reports, "blockers": blockers, "answers": answers, "questions": dict((q[0], q[1]) for q in intake.QUESTIONS),
             "stage": stages.stage_for(db, p, has_blockers=bool(blockers)),
+            "build_states": stages.build_states(design_linked=bool(p.core_project_id), composing=False,
+                                                composed_unsent=bool(current and current.status == "ready_to_send")),
             "design_box": proofs.design_box(db, p, current) if current and current.status == "ready_to_send" and not current.sent_at and auth.can(m.role, "compose") else None,
             "threads": _threads(_core_prefs(m)) if current and current.status == "ready_to_send" else []}
 
@@ -411,9 +413,25 @@ def compose_form(request: Request, proof_id: str, m: AccountUser = Depends(requi
     prefs = _core_prefs(m)
     hoops = core_client.stitch.hoops()
     default_hoop = (previous.hoop_code if previous and previous.hoop_code else "") or str(prefs.get("defaultHoopName") or "")
+    # Ask nothing twice: what the customer answered at intake and what the
+    # design itself says (fabric, size) prefill the garment, placement,
+    # quantity and sizes; the form still lets them change any of it.
+    answers = {a.field: a.value for a in db.execute(select(IntakeAnswer).where(IntakeAnswer.proof_id == p.id).order_by(IntakeAnswer.submitted_at)).scalars()}
+    doc = project.get("document") if project and isinstance(project.get("document"), dict) else None
+    fabric = ((doc or {}).get("objects") or [{}])[0].get("parameters", {}).get("fabricType", "standard") if doc and doc.get("objects") else "standard"
+    width_mm = float((doc or {}).get("physicalWidthMM") or (project or {}).get("widthMM") or p.requested_width_mm or 0)
+    height_mm = float((doc or {}).get("physicalHeightMM") or (project or {}).get("heightMM") or 0)
+    suggested_template, suggested_zone = garments.suggest(fabric, width_mm, height_mm, answers) if not previous else ("", "")
+    prefill = {"garment_style_name": answers.get("garment_style_name", ""), "garment_color": answers.get("garment_color", ""),
+               "quantity": answers.get("quantity", ""), "size_breakdown": answers.get("size_breakdown", ""), "placement_name": answers.get("placement_name", "")}
+    blockers = intake.open_blockers(db, p)
+    stage = stages.stage_for(db, p, has_blockers=bool(blockers))
+    build = stages.build_states(design_linked=bool(p.core_project_id), composing=True, composed_unsent=False)
     return templates.TemplateResponse(request, "compose.html", {"m": m, "p": p, "project": project, "project_error": project_error, "previous": previous,
                                                                  "projects": projects, "files": files, "error": request.session.pop("flash_error", None),
-                                                                 "hoops": hoops, "default_hoop": default_hoop, "hoop_from_core": bool(prefs.get("defaultHoopName")) and not (previous and previous.hoop_code)})
+                                                                 "hoops": hoops, "default_hoop": default_hoop, "hoop_from_core": bool(prefs.get("defaultHoopName")) and not (previous and previous.hoop_code),
+                                                                 "stage": stage, "build_states": build, "suggested_template": suggested_template, "suggested_zone": suggested_zone,
+                                                                 "prefill": prefill, "prefilled": bool(answers) or bool(doc)})
 
 
 @app.post("/proofs/{proof_id}/compose")
