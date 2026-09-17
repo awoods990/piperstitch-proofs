@@ -6,6 +6,7 @@
 <h1 style="margin:14px 0 4px">Sign in</h1>
 {% if step == 'email' %}
 <p class="muted">Use the email on your PiperStitch account. We'll send you a one-time code — no password.</p>
+<p class="muted" style="font-size:12.5px">By continuing you accept the <a href="{{ WEBSITE_URL }}/terms.html" target="_blank" rel="noopener">Terms</a> and <a href="{{ WEBSITE_URL }}/privacy-policy.html" target="_blank" rel="noopener">Privacy Policy</a>, including what Proofs records about the people you send proofs to.</p>
 <form method="post" action="/signin"><label>Email</label><input type="email" name="email" value="{{ email or '' }}" required autofocus><p style="margin-top:14px"><button class="btn primary big">Send me a code</button></p></form>
 {% else %}
 <p class="muted">We sent a 6-digit code to <b>{{ email }}</b>{% if path == 'license_admin' %} — it comes from PiperStitch, the same as the app's sign-in{% endif %}.</p>

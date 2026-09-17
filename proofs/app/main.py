@@ -63,7 +63,7 @@ _here = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
 templates = Jinja2Templates(directory=str(_here / "templates"))
 templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
-                              "GARMENT_COLORS": garments.GARMENT_COLORS, "GARMENT_COLOR_HEX": garments.GARMENT_COLOR_HEX, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL,
+                              "GARMENT_COLORS": garments.GARMENT_COLORS, "GARMENT_COLOR_HEX": garments.GARMENT_COLOR_HEX, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL, "WEBSITE_URL": config.WEBSITE_URL,
                               "STEPS": stages.STEPS, "BUILD_STEPS": stages.BUILD_STEPS, "PUBLIC_BASE_URL": config.PUBLIC_BASE_URL,
                               "ASSET_V": str(int((_here / "static" / "proofs.css").stat().st_mtime))})
 

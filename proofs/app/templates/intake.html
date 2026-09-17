@@ -21,4 +21,5 @@
 <p><button class="btn primary big">Send artwork</button></p>
 </form>
 <p class="hint">Questions? Contact {{ account.shop_name or 'the shop' }}{% if account.reply_to_email %} at {{ account.reply_to_email }}{% endif %}.</p>
+<p class="hint">Delivered by PiperStitch Proofs for {{ account.shop_name or 'the shop' }}. What you send here goes to the shop; PiperStitch stores it on the shop's behalf and does not use it for anything else. <a href="{{ WEBSITE_URL }}/privacy-policy.html#s4" target="_blank" rel="noopener">How your information is handled</a>.</p>
 {% endblock %}
