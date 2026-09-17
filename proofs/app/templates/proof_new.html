@@ -32,6 +32,8 @@
 <script>
 (function(){var box=document.getElementById('starts'),pick=document.getElementById('projectpick');
 function sync(){box.querySelectorAll('.choice').forEach(function(c){c.classList.toggle('selected',c.querySelector('input').checked)});var v=box.querySelector('input:checked').value;pick.style.display=v=='project'?'block':'none';document.getElementById('go').textContent=v=='ask'?'Create the job and send the artwork request':'Create the job';document.getElementById('gohint').textContent=v=='ask'?'The customer gets one email with the upload link. Everything else waits for you.':'Nothing goes to the customer until you say so.'}
-box.addEventListener('change',sync);sync()})();
+box.addEventListener('change',sync);
+var pre={{ preselect_project|tojson }};if(pre){var r=box.querySelector('input[value=project]');if(r){r.checked=true;}var sel=document.querySelector('[name=core_project_id]');if(sel){sel.value=pre;sel.dispatchEvent(new Event('change'));}}
+sync()})();
 </script>
 {% endblock %}

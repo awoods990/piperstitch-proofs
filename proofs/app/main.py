@@ -285,7 +285,10 @@ def board(request: Request, m: AccountUser = Depends(require_member), db: Sessio
 
 
 @app.get("/proofs/new", response_class=HTMLResponse)
-def new_proof_form(request: Request, m: AccountUser = Depends(require_can("create")), db: Session = Depends(get_db)):
+def new_proof_form(request: Request, m: AccountUser = Depends(require_can("create")), db: Session = Depends(get_db), project: str = "", name: str = ""):
+    """`?project=<id>&name=` -- PiperStitch's "Send to Proofs" button, via the
+    handoff: the form opens with "Use a PiperStitch project" chosen and that
+    project selected, so the job is one click away."""
     projects = []
     project_error = ""
     if m.core_session_token and core_client.license_admin.configured:
@@ -294,7 +297,12 @@ def new_proof_form(request: Request, m: AccountUser = Depends(require_can("creat
         except core_client.CoreError as e:
             project_error = str(e)
     contacts = list(db.execute(select(Contact).where(Contact.account_id == m.account_id, Contact.archived_at.is_(None)).order_by(Contact.display_name)).scalars())
-    return templates.TemplateResponse(request, "proof_new.html", {"m": m, "projects": projects, "project_error": project_error, "contacts": contacts})
+    preselect = project.strip()
+    if preselect and not any(str(pr.get("id")) == preselect for pr in projects):
+        # Just saved in PiperStitch: it may not be in the listing yet.
+        projects = [{"id": preselect, "name": name.strip() or "PiperStitch project", "widthMM": None, "heightMM": None}] + projects
+    return templates.TemplateResponse(request, "proof_new.html", {"m": m, "projects": projects, "project_error": project_error, "contacts": contacts,
+                                                                   "preselect_project": preselect, "preselect_name": name.strip()})
 
 
 @app.post("/proofs/new")
