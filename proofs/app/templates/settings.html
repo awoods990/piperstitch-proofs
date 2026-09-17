@@ -42,6 +42,9 @@
 <div class="panel"><h3>Texting (SMS)</h3>
 <p class="hint">Customers who opt in on the artwork form get the proof link and reminders by text too, can reply STOP any time, and can text photos of artwork straight in.{% if not SMS_CONFIGURED %} <b>Not configured on this server yet</b> — Twilio credentials and a registered number are needed.{% endif %}</p>
 <form method="post" action="/settings/sms" class="row" style="align-items:flex-end"><div><label>Texting</label><select name="enabled"><option value="no" {% if not ent.sms_enabled %}selected{% endif %}>Off</option><option value="yes" {% if ent.sms_enabled %}selected{% endif %}>On</option></select></div><div style="flex:0"><button class="btn">Save</button></div></form></div>
+<div class="panel"><h3>Outgoing email</h3>
+<p class="hint">Proofs, artwork requests and certificates go to your customers from <b>{{ email.from }}</b>{% if email.transport == "none" %} — <b>not configured on this server yet</b>: nothing can be sent until SMTP or Postmark is set up{% elif email.transport == "outbox" %} (written to a folder on this server, not sent — development mode){% endif %}. Replies come to {{ m.account.reply_to_email or "your sign-in address" }}.</p>
+<form method="post" action="/settings/test-email"><button class="btn">Send a test email to {{ m.account.reply_to_email or m.user.email }}</button></form></div>
 <div class="panel"><h3>Art by email</h3>{% if m.account.slug %}<p style="font-size:13.5px">Forward customer artwork to <b>art@{{ m.account.slug }}.piperstitch.com</b>. Mail from you or a known customer becomes a job straight away; anyone new waits for you to accept it on the Jobs page. Mail that fails DKIM/DMARC is rejected.</p>{% else %}<p class="hint">Get an address you and your customers can email artwork to — each message becomes a job.</p><form method="post" action="/settings/art-address"><button class="btn">Create my art@ address</button></form>{% endif %}</div>
 </div>
 

@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, billing, colorways, config, core_client, db as database, events, garments, ingest, intake, pdfgen, proofs, reminders, sms, stages, storage, stitch, texts, tokens
+from . import auth, billing, colorways, config, core_client, db as database, emailer, events, garments, ingest, intake, pdfgen, proofs, reminders, sms, stages, storage, stitch, texts, tokens
 from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Colorway, Contact, File, InboundEmail, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, ThreadStop, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
@@ -36,6 +36,7 @@ async def _lifespan(app: FastAPI):
     missing = config.require_for_serving()
     if missing:
         log.warning("Proofs is running with missing configuration: %s", ", ".join(missing))
+    log.info("Outbound email: %s", emailer.describe())
     task = asyncio.create_task(_scheduler())
     yield
     task.cancel()
@@ -147,7 +148,7 @@ def _load_proof(db: Session, m: AccountUser, proof_id: str) -> Proof:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "piperstitch-proofs"}
+    return {"ok": True, "service": "piperstitch-proofs", "email": emailer.describe()}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -742,6 +743,17 @@ async def twilio_inbound(request: Request, db: Session = Depends(get_db)):
     return Response(content=sms.twiml(reply), media_type="application/xml")
 
 
+@app.post("/settings/test-email")
+def settings_test_email(request: Request, m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
+    to = m.account.reply_to_email or m.user.email
+    problem = emailer.send_test(to, m.account.shop_name or "your shop")
+    if problem:
+        request.session["flash_error"] = f"Test email to {to} was not sent. {problem}"
+    else:
+        request.session["flash"] = f"Test email sent to {to} via {emailer.transport()} as {emailer.from_address()} -- check the inbox (and spam)."
+    return RedirectResponse("/settings", status_code=303)
+
+
 @app.post("/settings/sms")
 def settings_sms(request: Request, enabled: str = Form("no"), m: AccountUser = Depends(require_can("settings")), db: Session = Depends(get_db)):
     ent = proofs.entitlements(db, m.account)
@@ -893,7 +905,7 @@ def settings_form(request: Request, m: AccountUser = Depends(require_can("settin
     if subscribed == "1" and ent.proofs_enabled:
         request.session["flash"] = "You're subscribed to PiperStitch Proofs — no limit on proofs from here. Thank you!"
     db.commit()
-    return templates.TemplateResponse(request, "settings.html", {"m": m, "terms": terms, "members": members, "ent": ent,
+    return templates.TemplateResponse(request, "settings.html", {"m": m, "terms": terms, "members": members, "ent": ent, "email": emailer.describe(),
                                                                   "flash": request.session.pop("flash", None), "error": request.session.pop("flash_error", None)})
 
 

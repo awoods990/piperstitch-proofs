@@ -40,6 +40,7 @@ Railway → the existing PiperStitch project → **New service → GitHub repo �
 | `CORE_API_KEY` | **the same value** as the app server's `WEB_API_KEY` (its `X-API-Key` for `/api/v1/internal/*`) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | as License Admin (Microsoft 365), or |
 | `POSTMARK_API_TOKEN`, `POSTMARK_FROM` | Postmark instead of SMTP |
+| | `SMTP_FROM` defaults to `proofs@piperstitch.com`. Microsoft 365 only sends as the login mailbox or an alias it has Send-As rights on (otherwise `550 5.7.60 SendAsDenied`, silently for the customer); Postmark only from a verified signature/domain. Settings → Outgoing email → *Send a test email* shows the transport's refusal; `/health` shows which transport and From are live. |
 | `WEBHOOK_TOKEN` | random string; goes in the Postmark webhook URLs below |
 | `CERTIFICATE_SIGNING_KEY` | optional: base64url of 32 random bytes (Ed25519 seed) to sign certificates |
 | `STRIPE_*`, `FREE_PROOFS_GRANTED` | **not needed** when `LICENSE_ADMIN_URL` is set — the plan lives in License Admin (step 5). Only for a standalone/dev deployment. |

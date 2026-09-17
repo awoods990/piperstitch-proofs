@@ -697,3 +697,23 @@ def test_guided_setup_answers_from_piperstitch_prefill_the_account_once_per_run(
             assert a.shop_name == "Sid's Embroidery" and a.units == "metric" and a.core_setup_applied == "2026-09-17T09:00:00Z"
     finally:
         la.preferences = None
+
+
+def test_settings_test_email_reports_the_transport_and_its_refusal(outbox, monkeypatch):
+    """The Settings page says how mail leaves the server and a test send
+    puts the transport's own reason on the page -- an owner whose proofs
+    'aren't coming through' needs to read 'SendAsDenied', not a log line."""
+    from app import emailer
+    c = _client()
+    sign_in(c, "mail-test@shop.example", outbox)
+    page = c.get("/settings").text
+    assert "Outgoing email" in page and "Send a test email to mail-test@shop.example" in page
+    assert c.get("/health").json()["email"]["transport"] == "outbox"
+
+    r = c.post("/settings/test-email", follow_redirects=True)
+    assert "Test email sent to mail-test@shop.example" in r.text
+    assert any(m["subject"].startswith("PiperStitch Proofs test email") for m in outbox.all())
+
+    monkeypatch.setattr(emailer, "send", lambda **kw: emailer._fail("SMTP send failed: 550 5.7.60 SendAsDenied"))
+    r = c.post("/settings/test-email", follow_redirects=True)
+    assert "was not sent" in r.text and "SendAsDenied" in r.text
