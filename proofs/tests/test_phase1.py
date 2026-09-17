@@ -652,3 +652,48 @@ def test_handoff_signs_in_from_piperstitch_and_back_without_a_second_code(docume
     c3 = _client()
     c3.post("/signin", data={"email": "link2@shop.example"})
     assert "isn" in c3.get("/signin?email=link2%40shop.example&code=000000").text
+
+
+def test_guided_setup_answers_from_piperstitch_prefill_the_account_once_per_run(document, outbox):
+    """PiperStitch's guided setup writes the shop's answers into the shared
+    preferences; the first sign-in here copies them onto the account. The
+    same run is never re-applied (settings edited here stand), but a
+    fresh run -- a new `completedAt` -- is."""
+    from app import core_client
+    from app.db import Account
+    la = core_client.license_admin
+    la.sessions["core-tok-setup"] = {"customer_id": 5151, "email": "setup@shop.example", "name": "Sid Setup"}
+    la.preferences = {
+        "units": "in",
+        "business": {"name": "Sid's Stitches", "phone": "555-0100", "machineBrands": ["brother"]},
+        "proofsDefaults": {"shopName": "", "replyTo": "orders@shop.example", "responseWindowDays": 5, "remindersEnabled": False, "releaseGate": "hard"},
+        "onboarding": {"version": 1, "completedAt": "2026-09-16T20:00:00Z", "skippedAt": None, "products": ["core", "proofs"]},
+    }
+    try:
+        c = _client()
+        code = la.create_handoff("core-tok-setup", target="proofs")
+        assert c.get(f"/signin/handoff?code={code}", follow_redirects=False).status_code == 303
+        with database.SessionLocal() as db:
+            a = db.execute(database.select(Account).where(Account.core_customer_id == 5151)).scalar_one()
+            assert a.shop_name == "Sid's Stitches" and a.reply_to_email == "orders@shop.example" and a.phone == "555-0100"
+            assert a.units == "imperial" and a.default_response_window_days == 5 and a.reminders_enabled is False and a.release_gate_policy == "hard"
+            assert a.core_setup_applied == "2026-09-16T20:00:00Z"
+        # Edited here, then signed in again with the same setup run: untouched.
+        c.post("/settings", data={"shop_name": "Sid's Stitches LLC", "reply_to_email": "orders@shop.example", "phone": "555-0100", "release_gate_policy": "hard",
+                                  "default_response_window_days": "9", "quiet_hours_start": "20", "quiet_hours_end": "8", "reminders_enabled": "no"}, follow_redirects=False)
+        code = la.create_handoff("core-tok-setup", target="proofs")
+        assert _client().get(f"/signin/handoff?code={code}", follow_redirects=False).status_code == 303
+        with database.SessionLocal() as db:
+            a = db.execute(database.select(Account).where(Account.core_customer_id == 5151)).scalar_one()
+            assert a.shop_name == "Sid's Stitches LLC" and a.default_response_window_days == 9
+        # Guided setup run again over there: the new answers apply.
+        la.preferences["proofsDefaults"]["shopName"] = "Sid's Embroidery"
+        la.preferences["units"] = "cm"
+        la.preferences["onboarding"]["completedAt"] = "2026-09-17T09:00:00Z"
+        code = la.create_handoff("core-tok-setup", target="proofs")
+        assert _client().get(f"/signin/handoff?code={code}", follow_redirects=False).status_code == 303
+        with database.SessionLocal() as db:
+            a = db.execute(database.select(Account).where(Account.core_customer_id == 5151)).scalar_one()
+            assert a.shop_name == "Sid's Embroidery" and a.units == "metric" and a.core_setup_applied == "2026-09-17T09:00:00Z"
+    finally:
+        la.preferences = None

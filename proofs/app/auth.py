@@ -95,6 +95,7 @@ def verify_code(db: Session, email: str, code: str) -> tuple[str, AccountUser]:
             raise AuthError(str(e)) from e
         member = _ensure_owner(db, email=state.email or email, name=state.name, core_customer_id=state.customer_id)
         member.core_session_token = core_token
+        apply_core_setup(db, member)
     else:
         row = db.execute(select(SignInCode).where(SignInCode.email == email, SignInCode.used_at.is_(None)).order_by(SignInCode.expires_at.desc())).scalars().first()
         if row is None or parse_ts(row.expires_at) < datetime.now(timezone.utc):
@@ -126,6 +127,7 @@ def sign_in_with_handoff(db: Session, code: str, user_agent: str = "") -> tuple[
         raise AuthError(str(e)) from e
     member = _ensure_owner(db, email=state.email, name=state.name, core_customer_id=state.customer_id)
     member.core_session_token = core_token
+    apply_core_setup(db, member)
     if not member.accepted_at:
         member.accepted_at = utcnow()
     member.user.last_seen_at = utcnow()
@@ -148,6 +150,56 @@ def core_handoff_url(member: AccountUser, *, path_query: str = "") -> Optional[s
         return None
     sep = "&" if path_query else ""
     return f"{config.CORE_WEB_APP_URL}/?handoff={code}{sep}{path_query}"
+
+
+def apply_core_setup(db: Session, member: AccountUser) -> bool:
+    """Copies the answers from PiperStitch's guided setup (the shop, its
+    reply-to address, response window, reminders, release gate, units)
+    onto this account. The answers live in the customer's PiperStitch
+    preferences (`business`, `proofsDefaults`, `units`, `onboarding`) --
+    the same record the thread library comes from. Applied once per
+    completed setup run, keyed on `onboarding.completedAt`: settings
+    edited here afterwards are left alone, and running guided setup again
+    over there applies the new answers. Returns whether anything changed.
+    Any failure to reach License Admin is ignored -- the account is
+    simply not pre-filled."""
+    if not member.core_session_token or not core_client.license_admin.configured:
+        return False
+    try:
+        prefs = core_client.license_admin.get_preferences(member.core_session_token) or {}
+    except core_client.CoreError:
+        return False
+    onboarding = prefs.get("onboarding") or {}
+    completed = str(onboarding.get("completedAt") or "")
+    if not completed:
+        return False
+    a = member.account
+    if a.core_setup_applied == completed:
+        return False
+    business = prefs.get("business") or {}
+    defaults = prefs.get("proofsDefaults") or {}
+    shop_name = str(defaults.get("shopName") or business.get("name") or "").strip()
+    if shop_name:
+        a.shop_name = shop_name
+    reply_to = str(defaults.get("replyTo") or "").strip()
+    if reply_to:
+        a.reply_to_email = reply_to
+    phone = str(business.get("phone") or "").strip()
+    if phone:
+        a.phone = phone
+    if prefs.get("units") in ("cm", "in"):
+        a.units = "metric" if prefs["units"] == "cm" else "imperial"
+    try:
+        a.default_response_window_days = max(1, min(60, int(defaults.get("responseWindowDays") or a.default_response_window_days)))
+    except (TypeError, ValueError):
+        pass
+    if isinstance(defaults.get("remindersEnabled"), bool):
+        a.reminders_enabled = defaults["remindersEnabled"]
+    if defaults.get("releaseGate") in ("soft", "hard", "off"):
+        a.release_gate_policy = defaults["releaseGate"]
+    a.core_setup_applied = completed
+    db.flush()
+    return True
 
 
 def _ensure_owner(db: Session, *, email: str, name: str, core_customer_id: Optional[int]) -> AccountUser:

@@ -66,6 +66,10 @@ class Account(Base):
     quiet_hours_end: Mapped[int] = mapped_column(Integer, default=8)      # local hour, exclusive
     reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     next_reference: Mapped[int] = mapped_column(Integer, default=1000)
+    # The `completedAt` of the PiperStitch guided setup whose answers were
+    # last copied onto this account (auth.apply_core_setup) -- so one setup
+    # run is applied once, and settings edited here afterwards stand.
+    core_setup_applied: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[str] = mapped_column(String, default=utcnow)
     archived_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
