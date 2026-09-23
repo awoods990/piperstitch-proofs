@@ -1,10 +1,8 @@
-# The third copy of the Proofs code. The service already puts its
-# database and every artifact in the bucket each night; this puts the
-# code that reads them there too, so "what if GitHub is gone?" has the
-# same answer as "what if Railway is gone?"
-#
-# The bundle lands beside the main repository's under repository/ — same
-# bucket, different name.
+# The third copy. GitHub holds the code, the marketing site, the videos
+# and the history; this puts a complete, self-contained mirror of all of
+# it in the same bucket the two services back themselves up to — so the
+# answer to "what if Railway is gone?" and "what if GitHub is gone?" is
+# the same bucket, not a shrug.
 #
 # A git bundle is the whole repository in one file: clone it back with
 # `git clone piperstitch.bundle piperstitch` and you have every commit,
@@ -47,12 +45,59 @@ jobs:
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
-          set -euo pipefail
+          set -uo pipefail          # not -e: we want to explain a failure, not vanish on it
           if [ -z "${BUCKET:-}" ]; then
             echo "::warning::No bucket configured — add the BACKUP_* secrets to this repository."
             exit 0
           fi
-          echo "Uploading to $ENDPOINT/$BUCKET as region ${AWS_DEFAULT_REGION}"
+
+          # Say what we are about to do, and how long each secret is —
+          # never the values. A secret pasted with a stray space or
+          # missing entirely is the usual reason this step fails in one
+          # repository while working in another.
+          {
+            echo "### Off-platform mirror"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---|---|"
+            echo "| Endpoint | \`${ENDPOINT:-(empty)}\` |"
+            echo "| Bucket | \`${BUCKET:-(empty)}\` |"
+            echo "| Region | \`${AWS_DEFAULT_REGION:-(empty)}\` |"
+            echo "| Access key | ${#AWS_ACCESS_KEY_ID} characters |"
+            echo "| Secret key | ${#AWS_SECRET_ACCESS_KEY} characters |"
+            echo "| Bundle | $(du -h "piperstitch-proofs-${STAMP}.bundle" | cut -f1) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Checking the bucket is reachable with these credentials..."
+          if ! probe="$(aws --endpoint-url "$ENDPOINT" s3 ls "s3://$BUCKET" 2>&1)"; then
+            {
+              echo ""
+              echo "**The bucket refused those credentials.** What it said:"
+              echo ""
+              echo '```'
+              echo "$probe"
+              echo '```'
+              echo ""
+              echo "Usually one of: the secrets aren't set on *this* repository (they are per-repository);"
+              echo "a stray space when pasting; the region not matching the endpoint's datacentre; or the"
+              echo "bucket name being inside BACKUP_ENDPOINT, where it doesn't belong."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Could not reach s3://$BUCKET — see the run summary for what the bucket said."
+            echo "$probe"
+            exit 1
+          fi
+          echo "Reachable. Uploading..."
+
+          # Above 8 MB the CLI splits an object into a multipart upload,
+          # and that is where DigitalOcean Spaces still refuses the
+          # checksums it insists on sending. This repository's bundle is
+          # ~50 MB (the videos), Proofs' is under a megabyte — which is
+          # why the identical job succeeded there and failed here. A
+          # single PUT handles up to 5 GB, so raise the threshold and
+          # send it in one piece.
+          aws configure set default.s3.multipart_threshold 4GB
+          aws configure set default.s3.multipart_chunksize 4GB
+          set -e
           aws --endpoint-url "$ENDPOINT" s3 cp "piperstitch-proofs-${STAMP}.bundle" "s3://$BUCKET/repository/proofs/piperstitch-proofs-${STAMP}.bundle"
           aws --endpoint-url "$ENDPOINT" s3 cp "piperstitch-proofs-${STAMP}.bundle.sha256" "s3://$BUCKET/repository/proofs/piperstitch-proofs-${STAMP}.bundle.sha256"
           # Read it back: an upload nobody checked is a belief, not a backup.
