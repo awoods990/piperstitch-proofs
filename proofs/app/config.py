@@ -43,6 +43,7 @@ BACKUP_SECRET_KEY = os.environ.get("BACKUP_SECRET_KEY", "")
 BACKUP_REGION = os.environ.get("BACKUP_REGION", "us-east-1")
 BACKUP_HOUR_UTC = int(os.environ.get("BACKUP_HOUR_UTC", "4") or 4)     # an hour after License Admin's
 BACKUP_ALERT_EMAIL = os.environ.get("BACKUP_ALERT_EMAIL", "contact@piperstitch.com")
+BACKUP_PATH_STYLE = (os.environ.get("BACKUP_PATH_STYLE", "true").strip().lower() not in ("0", "false", "no"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8100").rstrip("/")
 if "<" in PUBLIC_BASE_URL or " " in PUBLIC_BASE_URL or not PUBLIC_BASE_URL.startswith("http"):
     # A placeholder pasted into Railway must never end up in a customer's link.
