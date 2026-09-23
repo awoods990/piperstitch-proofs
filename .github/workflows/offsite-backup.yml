@@ -35,9 +35,9 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.BACKUP_REGION || 'us-east-1' }}
-          ENDPOINT: ${{ secrets.BACKUP_ENDPOINT }}
-          BUCKET: ${{ secrets.BACKUP_BUCKET }}
+          AWS_DEFAULT_REGION: ${{ secrets.BACKUP_REGION || vars.BACKUP_REGION || 'us-east-1' }}
+          ENDPOINT: ${{ secrets.BACKUP_ENDPOINT || vars.BACKUP_ENDPOINT }}
+          BUCKET: ${{ secrets.BACKUP_BUCKET || vars.BACKUP_BUCKET }}
           # DigitalOcean Spaces (and most S3-compatible services) reject the
           # checksum headers AWS CLI v2.23+ began sending by default. Our own
           # uploader signs plain PUTs, which is why the services back up
@@ -67,6 +67,23 @@ jobs:
             echo "| Secret key | ${#AWS_SECRET_ACCESS_KEY} characters |"
             echo "| Bundle | $(du -h "piperstitch-proofs-${STAMP}.bundle" | cut -f1) |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "${AWS_ACCESS_KEY_ID}" ] || [ -z "${AWS_SECRET_ACCESS_KEY}" ]; then
+            {
+              echo ""
+              echo "**No credentials reached this job.** The keys are empty, so the AWS CLI had nothing"
+              echo "to sign with — its advice to run \`aws login\` is misleading here; there is no login."
+              echo ""
+              echo "In this repository: **Settings → Secrets and variables → Actions**, and check that"
+              echo "\`BACKUP_ACCESS_KEY\` and \`BACKUP_SECRET_KEY\` are under the **Secrets** tab, in the"
+              echo "**Repository secrets** section — not under the **Variables** tab beside it, not"
+              echo "Environment secrets, and not Dependabot secrets. Names look the same in all of them."
+              echo ""
+              echo "They are per-repository: a set added to piperstitch-proofs is invisible here."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::No credentials reached this job — see the run summary."
+            exit 1
+          fi
 
           echo "Checking the bucket is reachable with these credentials..."
           if ! probe="$(aws --endpoint-url "$ENDPOINT" s3 ls "s3://$BUCKET" 2>&1)"; then
@@ -110,9 +127,9 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.BACKUP_REGION || 'us-east-1' }}
-          ENDPOINT: ${{ secrets.BACKUP_ENDPOINT }}
-          BUCKET: ${{ secrets.BACKUP_BUCKET }}
+          AWS_DEFAULT_REGION: ${{ secrets.BACKUP_REGION || vars.BACKUP_REGION || 'us-east-1' }}
+          ENDPOINT: ${{ secrets.BACKUP_ENDPOINT || vars.BACKUP_ENDPOINT }}
+          BUCKET: ${{ secrets.BACKUP_BUCKET || vars.BACKUP_BUCKET }}
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
