@@ -156,7 +156,19 @@ def _load_proof(db: Session, m: AccountUser, proof_id: str) -> Proof:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "piperstitch-proofs", "email": emailer.describe()}
+    """Proofs has no admin screen, so the one place to see whether it is
+    backing itself up is here. Dates and sizes only -- nothing about the
+    bucket, the keys, or anybody's data."""
+    last = backups.last_run(status="ok")
+    return {
+        "ok": True, "service": "piperstitch-proofs", "email": emailer.describe(),
+        "backup": {
+            "configured": backups.configured(),
+            "last_ok": last["created_at"] if last else None,
+            "last_size_mb": round(last["size_bytes"] / 1024 / 1024, 1) if last else None,
+            "stale": backups.status()["stale"],
+        },
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

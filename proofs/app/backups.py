@@ -222,7 +222,7 @@ def record(*, status: str, key: str = "", size_bytes: int = 0, digest: str = "",
     conn = _log_conn()
     try:
         conn.execute("INSERT INTO backup_runs (key, size_bytes, digest, status, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                     (key, size_bytes, digest, status, detail[:2000], datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z"))
+                     (key, size_bytes, digest, status, detail[:2000], datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")))
         conn.commit()
     finally:
         conn.close()
@@ -347,8 +347,14 @@ def status() -> dict:
     last_any = last_run()
     stale = True
     if last_ok:
-        age = datetime.now(timezone.utc) - datetime.fromisoformat(last_ok["created_at"].replace("Z", "+00:00"))
-        stale = age > timedelta(days=2)
+        stamp = last_ok["created_at"].replace("Z", "")
+        if not stamp.endswith("+00:00"):
+            stamp += "+00:00"
+        try:
+            stale = datetime.now(timezone.utc) - datetime.fromisoformat(stamp) > timedelta(days=2)
+        except ValueError:
+            stale = False        # unreadable date is not evidence of staleness
+
     return {
         "configured": configured(), "destination": f"{config.BACKUP_ENDPOINT}/{config.BACKUP_BUCKET}" if configured() else "",
         "last_ok": last_ok, "last_any": last_any, "stale": stale, "recent": recent(10),
