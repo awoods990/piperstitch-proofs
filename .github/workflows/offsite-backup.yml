@@ -33,8 +33,14 @@ jobs:
 
       - name: Put it in the bucket
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_KEY }}
+          # Whichever name these were saved under. The bucket arrived while
+          # these did not, which means the names differ rather than the
+          # secrets being absent.
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY || secrets.BACKUP_ACCESS_KEY_ID || secrets.SPACES_ACCESS_KEY || secrets.SPACES_KEY || secrets.AWS_ACCESS_KEY_ID || secrets.DO_SPACES_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_KEY || secrets.BACKUP_SECRET_ACCESS_KEY || secrets.SPACES_SECRET_KEY || secrets.SPACES_SECRET || secrets.AWS_SECRET_ACCESS_KEY || secrets.DO_SPACES_SECRET }}
+          NAMED_BACKUP_ACCESS_KEY: ${{ secrets.BACKUP_ACCESS_KEY != '' }}
+          NAMED_SPACES_ACCESS_KEY: ${{ secrets.SPACES_ACCESS_KEY != '' }}
+          NAMED_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
           AWS_DEFAULT_REGION: ${{ secrets.BACKUP_REGION || vars.BACKUP_REGION || 'us-east-1' }}
           ENDPOINT: ${{ secrets.BACKUP_ENDPOINT || vars.BACKUP_ENDPOINT }}
           BUCKET: ${{ secrets.BACKUP_BUCKET || vars.BACKUP_BUCKET }}
@@ -65,6 +71,9 @@ jobs:
             echo "| Region | \`${AWS_DEFAULT_REGION:-(empty)}\` |"
             echo "| Access key | ${#AWS_ACCESS_KEY_ID} characters |"
             echo "| Secret key | ${#AWS_SECRET_ACCESS_KEY} characters |"
+            echo "| Found under BACKUP_ACCESS_KEY | ${NAMED_BACKUP_ACCESS_KEY} |"
+            echo "| Found under SPACES_ACCESS_KEY | ${NAMED_SPACES_ACCESS_KEY} |"
+            echo "| Found under AWS_ACCESS_KEY_ID | ${NAMED_AWS_ACCESS_KEY_ID} |"
             echo "| Bundle | $(du -h "piperstitch-proofs-${STAMP}.bundle" | cut -f1) |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -80,6 +89,11 @@ jobs:
               echo "Environment secrets, and not Dependabot secrets. Names look the same in all of them."
               echo ""
               echo "They are per-repository: a set added to piperstitch-proofs is invisible here."
+              echo ""
+              echo "This job also accepts the names \`BACKUP_ACCESS_KEY_ID\`, \`SPACES_ACCESS_KEY\`,"
+              echo "\`SPACES_KEY\`, \`AWS_ACCESS_KEY_ID\` and \`DO_SPACES_KEY\` (and the matching secret-key"
+              echo "spellings), so a near-miss on the name is already covered. If none of those matched,"
+              echo "the value itself is empty — re-paste it, since a secret cannot be read back to check."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::error::No credentials reached this job — see the run summary."
             exit 1
@@ -125,8 +139,14 @@ jobs:
 
       - name: Keep the last twelve
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_KEY }}
+          # Whichever name these were saved under. The bucket arrived while
+          # these did not, which means the names differ rather than the
+          # secrets being absent.
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY || secrets.BACKUP_ACCESS_KEY_ID || secrets.SPACES_ACCESS_KEY || secrets.SPACES_KEY || secrets.AWS_ACCESS_KEY_ID || secrets.DO_SPACES_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_KEY || secrets.BACKUP_SECRET_ACCESS_KEY || secrets.SPACES_SECRET_KEY || secrets.SPACES_SECRET || secrets.AWS_SECRET_ACCESS_KEY || secrets.DO_SPACES_SECRET }}
+          NAMED_BACKUP_ACCESS_KEY: ${{ secrets.BACKUP_ACCESS_KEY != '' }}
+          NAMED_SPACES_ACCESS_KEY: ${{ secrets.SPACES_ACCESS_KEY != '' }}
+          NAMED_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
           AWS_DEFAULT_REGION: ${{ secrets.BACKUP_REGION || vars.BACKUP_REGION || 'us-east-1' }}
           ENDPOINT: ${{ secrets.BACKUP_ENDPOINT || vars.BACKUP_ENDPOINT }}
           BUCKET: ${{ secrets.BACKUP_BUCKET || vars.BACKUP_BUCKET }}
