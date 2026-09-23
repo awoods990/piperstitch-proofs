@@ -1,0 +1,84 @@
+# The third copy of the Proofs code. The service already puts its
+# database and every artifact in the bucket each night; this puts the
+# code that reads them there too, so "what if GitHub is gone?" has the
+# same answer as "what if Railway is gone?"
+#
+# The bundle lands beside the main repository's under repository/ — same
+# bucket, different name.
+#
+# A git bundle is the whole repository in one file: clone it back with
+# `git clone piperstitch.bundle piperstitch` and you have every commit,
+# branch and tag, offline.
+name: offsite-backup
+on:
+  schedule:
+    - cron: "30 4 * * 0"        # Sundays, after the services have taken theirs
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    name: Mirror the repository off-platform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # every commit, or it isn't a backup
+
+      - name: Build the bundle
+        run: |
+          set -euo pipefail
+          stamp="$(date -u +%Y-%m-%d)"
+          git bundle create "piperstitch-proofs-${stamp}.bundle" --all
+          sha256sum "piperstitch-proofs-${stamp}.bundle" > "piperstitch-proofs-${stamp}.bundle.sha256"
+          ls -lh "piperstitch-proofs-${stamp}.bundle"
+          echo "STAMP=${stamp}" >> "$GITHUB_ENV"
+
+      - name: Put it in the bucket
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.BACKUP_REGION || 'us-east-1' }}
+          ENDPOINT: ${{ secrets.BACKUP_ENDPOINT }}
+          BUCKET: ${{ secrets.BACKUP_BUCKET }}
+          # DigitalOcean Spaces (and most S3-compatible services) reject the
+          # checksum headers AWS CLI v2.23+ began sending by default. Our own
+          # uploader signs plain PUTs, which is why the services back up
+          # happily while this step did not.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          set -euo pipefail
+          if [ -z "${BUCKET:-}" ]; then
+            echo "::warning::No bucket configured — add the BACKUP_* secrets to this repository."
+            exit 0
+          fi
+          echo "Uploading to $ENDPOINT/$BUCKET as region ${AWS_DEFAULT_REGION}"
+          aws --endpoint-url "$ENDPOINT" s3 cp "piperstitch-proofs-${STAMP}.bundle" "s3://$BUCKET/repository/proofs/piperstitch-proofs-${STAMP}.bundle"
+          aws --endpoint-url "$ENDPOINT" s3 cp "piperstitch-proofs-${STAMP}.bundle.sha256" "s3://$BUCKET/repository/proofs/piperstitch-proofs-${STAMP}.bundle.sha256"
+          # Read it back: an upload nobody checked is a belief, not a backup.
+          aws --endpoint-url "$ENDPOINT" s3 cp "s3://$BUCKET/repository/proofs/piperstitch-proofs-${STAMP}.bundle" check.bundle
+          test "$(sha256sum check.bundle | cut -d' ' -f1)" = "$(cut -d' ' -f1 "piperstitch-proofs-${STAMP}.bundle.sha256")"
+          git bundle verify check.bundle
+          echo "Verified: the bundle in the bucket is a complete, clonable repository."
+
+      - name: Keep the last twelve
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.BACKUP_REGION || 'us-east-1' }}
+          ENDPOINT: ${{ secrets.BACKUP_ENDPOINT }}
+          BUCKET: ${{ secrets.BACKUP_BUCKET }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          set -euo pipefail
+          if [ -z "${BUCKET:-}" ]; then
+            exit 0
+          fi
+          keys="$(aws --endpoint-url "$ENDPOINT" s3 ls "s3://$BUCKET/repository/proofs/" | awk '{print $4}' | grep '\.bundle$' | sort)"
+          count="$(echo "$keys" | wc -l)"
+          if [ "$count" -gt 12 ]; then
+            echo "$keys" | head -n "$((count - 12))" | while read -r old; do
+              aws --endpoint-url "$ENDPOINT" s3 rm "s3://$BUCKET/repository/proofs/$old" "s3://$BUCKET/repository/proofs/$old.sha256" || true
+            done
+          fi
