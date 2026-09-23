@@ -172,8 +172,16 @@ def get(key: str) -> bytes:
     return r.content
 
 
+def canonical_query(params: dict) -> str:
+    """SigV4 signs the query string *sorted by parameter name*, so the
+    order we happen to write them in is not a detail -- get it wrong and
+    the request is rejected as SignatureDoesNotMatch, which is what
+    happened the first time this ran against a real bucket."""
+    return "&".join(f"{quote(k, safe='')}={quote(str(v), safe='')}" for k, v in sorted(params.items()))
+
+
 def listing(prefix: str = "") -> list[str]:
-    r = _request("GET", "", query=f"list-type=2&prefix={quote(prefix, safe='')}&max-keys=1000")
+    r = _request("GET", "", query=canonical_query({"list-type": 2, "prefix": prefix, "max-keys": 1000}))
     if r.status_code != 200:
         raise RuntimeError(f"Could not list ({r.status_code}): {r.text[:200]}")
     import re
@@ -284,7 +292,11 @@ def run(*, verify: bool = True) -> dict:
                 raise RuntimeError(f"Read back {there} bytes, sent {len(archive)}")
             if hashlib.sha256(get(key)).hexdigest() != hashlib.sha256(archive).hexdigest():
                 raise RuntimeError("What came back is not what went up")
-        removed = prune(started)
+        try:
+            removed = prune(started)
+        except Exception as e:  # noqa: BLE001 - tidying old copies is not the backup
+            log.warning("Backup uploaded and verified, but pruning old copies failed: %s", e)
+            removed = -1
         record(status="ok", key=key, size_bytes=len(archive), digest=hashlib.sha256(archive).hexdigest(),
                detail=json.dumps({"artifacts": manifest["artifact_files"], "pruned": removed}))
         log.info("Backup %s uploaded and verified (%.1f MB)", key, len(archive) / 1024 / 1024)
