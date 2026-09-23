@@ -571,6 +571,25 @@ class Message(Base):
     read_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
+def backup_to(path: str) -> int:
+    """A consistent copy of the database, through SQLite's own backup API
+    so it is safe to take while Proofs is serving. A plain file copy of a
+    live WAL database is not. Returns the size in bytes."""
+    import os
+    import sqlite3
+
+    source = sqlite3.connect(config.DATABASE_PATH, timeout=30.0)
+    try:
+        target = sqlite3.connect(path)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+    finally:
+        source.close()
+    return os.path.getsize(path)
+
+
 # --- engine and sessions ---------------------------------------------------------
 
 _APPEND_ONLY_TRIGGERS = [

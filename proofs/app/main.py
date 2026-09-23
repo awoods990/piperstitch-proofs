@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, billing, colorways, config, core_client, db as database, emailer, events, garments, ingest, intake, pdfgen, proofs, reminders, sms, stages, storage, stitch, texts, tokens
+from . import auth, backups, billing, colorways, config, core_client, db as database, emailer, events, garments, ingest, intake, pdfgen, proofs, reminders, sms, stages, storage, stitch, texts, tokens
 from .db import Account, AccountUser, ApprovalRecord, ChangeRequest, Colorway, Contact, File, InboundEmail, IntakeAnswer, Message, Proof, ProofVersion, TermsVersion, ThreadStop, TriageFinding, TriageReport, User
 
 log = logging.getLogger("proofs")
@@ -37,6 +37,7 @@ async def _lifespan(app: FastAPI):
     if missing:
         log.warning("Proofs is running with missing configuration: %s", ", ".join(missing))
     log.info("Outbound email: %s", emailer.describe())
+    log.info("Off-platform backups: %s", f"nightly to {config.BACKUP_BUCKET}" if backups.configured() else "NOT CONFIGURED — nothing leaves Railway")
     task = asyncio.create_task(_scheduler())
     yield
     task.cancel()
@@ -54,6 +55,13 @@ async def _scheduler():
                     log.info("Expired %d; reminders sent %d, suppressed %d", n, r["sent"], r["suppressed"])
         except Exception as e:  # noqa: BLE001
             log.exception("scheduler: %s", e)
+        try:
+            # The nightly copy off this platform: the database and every
+            # artifact. Never allowed to take the scheduler down with it.
+            if backups.check():
+                log.info("Backup uploaded and verified")
+        except Exception as e:  # noqa: BLE001
+            log.exception("backup: %s", e)
         await asyncio.sleep(600)
 
 
