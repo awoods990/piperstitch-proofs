@@ -33,8 +33,13 @@
 <tbody>
 {% for p, stage in rows %}
 <tr>
-<td class="who">{{ p.contact.display_name or p.contact.email }}{% if p.contact.company_name %}<small>{{ p.contact.company_name }}</small>{% endif %}</td>
-<td><a class="title" href="/proofs/{{ p.id }}">{{ p.title }}</a><div class="ref">{{ p.reference }}{% if p.due_date %} · due {{ p.due_date }}{% endif %}</div></td>
+{# The customer and the job are one target. Someone scanning the board
+   reaches for the customer's name as readily as the job title, and only
+   the title used to open anything -- a click an inch to its left did
+   nothing at all. Real links, so middle-click and "open in new tab" keep
+   working; block-level, so the whole cell is the hit area. #}
+<td class="who"><a class="cell-link" href="/proofs/{{ p.id }}">{{ p.contact.display_name or p.contact.email }}{% if p.contact.company_name %}<small>{{ p.contact.company_name }}</small>{% endif %}</a></td>
+<td class="job"><a class="cell-link" href="/proofs/{{ p.id }}"><span class="title">{{ p.title }}</span><span class="ref">{{ p.reference }}{% if p.due_date %} · due {{ p.due_date }}{% endif %}</span></a></td>
 <td>{% with mini=True %}{% include "_tracker.html" %}{% endwith %}</td>
 <td><span class="{{ 'muted' if stage.tone == 'neutral' else '' }}" style="{% if stage.tone == 'warn' %}color:var(--warnText){% elif stage.tone == 'bad' %}color:var(--critText){% elif stage.tone == 'good' %}color:var(--readyText){% endif %}">{{ stage.headline }}</span></td>
 <td class="right"><span class="waiting {{ stage.waiting_on }}">{{ {'you': 'You', 'customer': 'Customer', 'colleague': 'Colleague', 'nobody': '—'}[stage.waiting_on] }}</span></td>

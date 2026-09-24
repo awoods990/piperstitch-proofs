@@ -767,3 +767,35 @@ def test_a_hard_release_gate_offers_no_download_until_the_job_is_released(docume
     c.post(f"/proofs/{proof_id}/release", follow_redirects=False)
     assert "Pick the format your machine reads" in c.get(f"/proofs/{proof_id}").text
     assert c.get(f"/proofs/{proof_id}/versions/{vid}/design.dst").status_code == 200
+
+
+def test_the_customer_cell_opens_the_job_not_only_the_title(document, outbox):
+    """Someone scanning the board reaches for the customer's name as
+    readily as the job title, and a click an inch to the left of the title
+    used to do nothing at all. Both of the first two cells are now links to
+    the same job."""
+    c = _client()
+    sign_in(c, "dana11@shop.example", outbox)
+    pid = create_and_compose(c, document, email="m11@example.com")
+    page = c.get("/proofs").text
+    assert page.count(f'class="cell-link" href="/proofs/{pid}"') == 2, "customer and job cells should both open the job"
+    # Still a real link, so middle-click and "open in new tab" keep working.
+    assert f'<a class="cell-link" href="/proofs/{pid}">' in page
+
+
+def test_the_download_links_name_the_file_they_will_save(document, outbox):
+    """The name is on the link as well as the response header: it is what
+    the save-location picker suggests, and what a plain download uses when
+    there is no picker."""
+    c = _client()
+    sign_in(c, "dana12@shop.example", outbox)
+    pid = create_and_compose(c, document, email="m12@example.com")
+    url = send_current(c, pid, outbox, "m12@example.com")
+    cust = TestClient(app)
+    cust.get(url)
+    cust.post(url + "/approve", data={"signer_name": "M Twelve", "consent": "yes"}, follow_redirects=False)
+    with database.SessionLocal() as db:
+        reference = db.get(Proof, pid).reference
+    page = c.get(f"/proofs/{pid}").text
+    for fmt in core_client.MACHINE_FORMATS:
+        assert f'download="{reference}-v1.{fmt}"' in page, fmt

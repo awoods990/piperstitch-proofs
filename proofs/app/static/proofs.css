@@ -141,11 +141,19 @@ details.panel summary { color: var(--navy700); }
 .jobs td { padding: 10px 12px; border-bottom: 1px solid var(--rowline); vertical-align: middle; font-size: 13.5px; }
 .jobs tr:last-child td { border-bottom: 0; }
 .jobs tr:hover td { background: #fbfaf7; }
-.jobs a.title { color: var(--navy800); font-weight: 600; text-decoration: none; }
-.jobs .ref { color: var(--label); font-size: 12px; }
+.jobs .title { color: var(--navy800); font-weight: 600; text-decoration: none; }
+.jobs .ref { color: var(--label); font-size: 12px; display: block; }
 .jobs .who { color: var(--ink2); }
 .jobs .who small { display: block; color: var(--label); font-size: 12px; }
 .jobs td.right { text-align: right; white-space: nowrap; }
+/* The link carries the cell's padding so the whole cell is the hit area --
+   including the strip above and below the text, which the row inherits from
+   whichever cell is tallest. The 1px height is the old trick that lets the
+   link's height:100% resolve against a table cell. */
+.jobs td.who, .jobs td.job { padding: 0; height: 1px; }
+.jobs a.cell-link { display: flex; flex-direction: column; justify-content: center; height: 100%;
+  box-sizing: border-box; padding: 10px 12px; color: inherit; text-decoration: none; }
+.jobs a.cell-link:focus-visible { outline: 2px solid var(--blue500); outline-offset: -2px; border-radius: 4px; }
 
 /* --- the step tracker --- */
 .tracker { display: flex; gap: 0; align-items: flex-start; margin: 8px 0 4px; }

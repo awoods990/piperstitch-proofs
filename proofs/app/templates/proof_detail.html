@@ -178,11 +178,54 @@ dr.addEventListener('touchstart',down,{passive:false});window.addEventListener('
 <div class="fmt-list">
 <p class="fmt-head">Pick the format your machine reads</p>
 {% for fmt, maker, note in MACHINE_FILE_LABELS %}
-<a href="/proofs/{{ p.id }}/versions/{{ current.id }}/design.{{ fmt }}" download><b>.{{ fmt }}</b><span>{{ maker }}{% if note %} · {{ note }}{% endif %}</span></a>
+<a href="/proofs/{{ p.id }}/versions/{{ current.id }}/design.{{ fmt }}" download="{{ p.reference }}-v{{ current.version_number }}.{{ fmt }}"><b>.{{ fmt }}</b><span>{{ maker }}{% if note %} · {{ note }}{% endif %}</span></a>
 {% endfor %}
-<p class="fmt-foot">Saves as <span class="mono">{{ p.reference }}-v{{ current.version_number }}.dst</span> and the like, wherever your browser puts downloads.</p>
+<p class="fmt-foot" id="fmtFoot">Saves as <span class="mono">{{ p.reference }}-v{{ current.version_number }}.dst</span> and the like, wherever your browser puts downloads.</p>
 </div>
 </details>
+<script>
+/* Chrome and Edge can ask where to put the file. Everywhere else the plain
+   download stands, which is why this only ever adds behaviour: if anything
+   here is missing or fails, the link does what it already did. */
+(function () {
+  var menu = document.querySelector(".fmt-menu");
+  if (!menu || typeof window.showSaveFilePicker !== "function") return;
+  var foot = document.getElementById("fmtFoot");
+  if (foot) foot.textContent = "You'll be asked where to save it.";
+
+  menu.querySelectorAll("a[download]").forEach(function (a) {
+    a.addEventListener("click", function (e) {
+      e.preventDefault();
+      var name = a.getAttribute("download");
+      var ext = name.slice(name.lastIndexOf(".") + 1);
+      var accept = {};
+      accept["application/octet-stream"] = ["." + ext];
+      /* The picker is opened first, while the click is still the user's:
+         anything awaited before it spends the gesture and the browser
+         refuses to show it. */
+      window.showSaveFilePicker({
+        suggestedName: name,
+        types: [{ description: ext.toUpperCase() + " embroidery file", accept: accept }],
+      }).then(function (handle) {
+        return fetch(a.href).then(function (res) {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.blob();
+        }).then(function (blob) {
+          return handle.createWritable().then(function (w) {
+            return w.write(blob).then(function () { return w.close(); });
+          });
+        }).then(function () {
+          if (foot) foot.textContent = "Saved " + name + ".";
+          menu.open = false;
+        });
+      }).catch(function (err) {
+        if (err && err.name === "AbortError") return;   /* they changed their mind */
+        window.location.href = a.href;                  /* anything else: the ordinary download */
+      });
+    });
+  });
+})();
+</script>
 {% endif %}
 <span class="hint">One page for the machine: hoop, backing, needle, size, placement, the approved colourway's threads in order, quantity by size and a checklist.{% if p.status not in ('released','completed') %} It's stamped “not cleared” until you release.{% endif %}</span></div>
 {% if files_held %}<p class="action-hint">Release the job to unlock the machine files — your release-gate setting is set to withhold them until then.</p>{% endif %}
