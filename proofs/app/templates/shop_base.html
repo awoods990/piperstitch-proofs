@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block header %}
 <header class="topbar">
-<a class="brand" href="/proofs"><img src="/static/icon.png" alt="">PiperStitch <small>Proofs</small></a>
+{# The mark goes to the marketing site; "Jobs" in the nav beside it is
+   still the way back to the board, so nothing is lost. New tab on
+   purpose -- a shop mid-way through a job should not be navigated off
+   it by a click on a logo. #}
+<a class="brand" href="{{ WEBSITE_URL }}" target="_blank" rel="noopener" title="PiperStitch home (opens in a new tab)"><img src="/static/icon.png" alt="">PiperStitch <small>Proofs</small></a>
 <nav><a href="/proofs" class="{{ 'on' if nav == 'board' else '' }}">Jobs</a>{% if m.role != 'stitcher' %}<a href="/proofs/new" class="{{ 'on' if nav == 'new' else '' }}">New job</a>{% endif %}{% if m.role == 'owner' %}<a href="/settings" class="{{ 'on' if nav == 'settings' else '' }}">Settings</a>{% endif %}</nav>
 <span class="grow"></span>
 <a class="btn primary small core-btn" href="/core/open" title="Open PiperStitch — already signed in">PiperStitch ↗</a>
