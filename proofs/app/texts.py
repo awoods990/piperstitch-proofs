@@ -50,3 +50,15 @@ FABRIC_NAMES = {
     "stretchKnit": "Stretch knit", "terry": "Terry / plush", "leatherOrVinyl": "Leather / vinyl",
     "structuredCap": "Structured cap", "unstructuredCap": "Unstructured cap", "beanie": "Knit beanie",
 }
+
+
+# The machine formats offered for download, in the order PiperStitch's own
+# editor offers them: the one most machines read first. Kept here so the
+# production panel and the version panel cannot drift apart.
+MACHINE_FILE_LABELS: list[tuple[str, str, str]] = [
+    ("dst", "Tajima", "most commercial machines"),
+    ("pes", "Brother / Baby Lock", ""),
+    ("jef", "Janome", ""),
+    ("exp", "Melco / Bernina", ""),
+    ("vp3", "Husqvarna Viking / Pfaff", ""),
+]

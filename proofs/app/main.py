@@ -107,7 +107,7 @@ async def _harden(request: Request, call_next):
 _here = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
 templates = Jinja2Templates(directory=str(_here / "templates"))
-templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "GARMENT_TEMPLATES": garments.TEMPLATES,
+templates.env.globals.update({"HONESTY_NOTE": texts.HONESTY_NOTE, "FABRIC_NAMES": texts.FABRIC_NAMES, "MACHINE_FILE_LABELS": texts.MACHINE_FILE_LABELS, "GARMENT_TEMPLATES": garments.TEMPLATES,
                               "GARMENT_COLORS": garments.GARMENT_COLORS, "GARMENT_COLOR_HEX": garments.GARMENT_COLOR_HEX, "TEMPLATE_BY_ID": garments.TEMPLATE_BY_ID, "PROOFS_PRICE_CENTS": config.PROOFS_PRICE_CENTS, "SMS_CONFIGURED": sms.configured(), "CORE_WEB_APP_URL": config.CORE_WEB_APP_URL, "WEBSITE_URL": config.WEBSITE_URL,
                               "STEPS": stages.STEPS, "BUILD_STEPS": stages.BUILD_STEPS, "PUBLIC_BASE_URL": config.PUBLIC_BASE_URL,
                               "ASSET_V": str(int((_here / "static" / "proofs.css").stat().st_mtime))})
@@ -922,7 +922,14 @@ def _serve_artifact(p: Proof, v: ProofVersion, artifact: str, *, gate: str = "of
     if not storage.exists(key):
         raise HTTPException(404)
     data = storage.get(key)
-    headers = {"Content-Disposition": f'inline; filename="{p.reference}-v{v.version_number}-{names[artifact][0]}"'}
+    # A machine file is for the machine, not for looking at: it is sent as an
+    # attachment so the browser saves it, under a name a shop can find again
+    # ("HS-1042-v2.dst" rather than the internal "design.dst").
+    if artifact.startswith("design."):
+        filename = f"{p.reference}-v{v.version_number}.{artifact.split('.', 1)[1]}"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    else:
+        headers = {"Content-Disposition": f'inline; filename="{p.reference}-v{v.version_number}-{names[artifact][0]}"'}
     if artifact.startswith("design.") and gate == "soft" and p.status not in ("released", "completed"):
         headers["X-PiperStitch-Warning"] = "unapproved"
     return Response(content=data, media_type=names[artifact][1], headers=headers)

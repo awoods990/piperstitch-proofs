@@ -717,3 +717,53 @@ def test_settings_test_email_reports_the_transport_and_its_refusal(outbox, monke
     monkeypatch.setattr(emailer, "send", lambda **kw: emailer._fail("SMTP send failed: 550 5.7.60 SendAsDenied"))
     r = c.post("/settings/test-email", follow_redirects=True)
     assert "was not sent" in r.text and "SendAsDenied" in r.text
+
+
+def test_the_production_panel_offers_the_machine_file_beside_the_sheet(document, outbox):
+    """The sheet tells the operator what to do; the file is what they load
+    into the machine. Both belong at the same weight at the moment someone
+    is walking to the machine, not one of them buried in a version panel."""
+    c = _client()
+    sign_in(c, "dana9@shop.example", outbox)
+    proof_id = create_and_compose(c, document, email="m9@example.com")
+    url = send_current(c, proof_id, outbox, "m9@example.com")
+    customer = TestClient(app)
+    customer.get(url)
+    customer.post(url + "/approve", data={"signer_name": "M Nine", "consent": "yes"}, follow_redirects=False)
+
+    page = c.get(f"/proofs/{proof_id}").text
+    assert "Download the machine file" in page
+    assert "Pick the format your machine reads" in page
+    for fmt in core_client.MACHINE_FORMATS:
+        assert f"/design.{fmt}" in page, fmt
+
+    with database.SessionLocal() as db:
+        p = db.get(Proof, proof_id)
+        vid, reference = p.current_version_id, p.reference
+    r = c.get(f"/proofs/{proof_id}/versions/{vid}/design.dst")
+    assert r.status_code == 200
+    # An attachment, named so a shop can find it again -- not "design.dst".
+    assert r.headers["content-disposition"] == f'attachment; filename="{reference}-v1.dst"'
+
+
+def test_a_hard_release_gate_offers_no_download_until_the_job_is_released(document, outbox):
+    c = _client()
+    sign_in(c, "dana10@shop.example", outbox)
+    c.post("/settings", data={"shop_name": "Hard Gate Co", "release_gate_policy": "hard"}, follow_redirects=False)
+    proof_id = create_and_compose(c, document, email="m10@example.com")
+    url = send_current(c, proof_id, outbox, "m10@example.com")
+    customer = TestClient(app)
+    customer.get(url)
+    customer.post(url + "/approve", data={"signer_name": "M Ten", "consent": "yes"}, follow_redirects=False)
+
+    page = c.get(f"/proofs/{proof_id}").text
+    assert "Release the job to unlock the machine files" in page
+    assert "Pick the format your machine reads" not in page, "a chooser that only 423s is worse than none"
+
+    with database.SessionLocal() as db:
+        vid = db.get(Proof, proof_id).current_version_id
+    assert c.get(f"/proofs/{proof_id}/versions/{vid}/design.dst").status_code == 423
+
+    c.post(f"/proofs/{proof_id}/release", follow_redirects=False)
+    assert "Pick the format your machine reads" in c.get(f"/proofs/{proof_id}").text
+    assert c.get(f"/proofs/{proof_id}/versions/{vid}/design.dst").status_code == 200

@@ -214,3 +214,23 @@ details.panel summary { color: var(--navy700); }
 .bstep.done { color: var(--ink2); } .bstep.done b { background: var(--readyText); border-color: var(--readyText); color: #fff; }
 .bstep.current { color: var(--navy800); font-weight: 600; } .bstep.current b { background: var(--blue500); border-color: var(--blue500); color: #fff; }
 .barrow { color: var(--line); }
+
+
+/* The machine-file chooser in Production. A <details> rather than a
+   scripted popover: it keeps working with no JavaScript, and the summary
+   is styled as the button it looks like. */
+.fmt-menu { position: relative; display: inline-block; }
+.fmt-menu > summary { list-style: none; cursor: pointer; }
+.fmt-menu > summary::-webkit-details-marker { display: none; }
+.fmt-menu > summary::after { content: " \25be"; }
+.fmt-list { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; min-width: 300px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(8,26,51,.13); padding: 8px; }
+.fmt-head { margin: 2px 6px 8px; font-size: 12px; color: var(--muted); }
+.fmt-list a { display: flex; align-items: baseline; gap: 10px; padding: 8px 10px; border-radius: 7px;
+  text-decoration: none; color: var(--ink); }
+.fmt-list a:hover { background: var(--rowline); }
+.fmt-list a b { min-width: 46px; }
+.fmt-list a span { font-size: 12.5px; color: var(--muted); }
+.fmt-foot { margin: 8px 6px 2px; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+@media (max-width: 620px) { .fmt-list { left: auto; right: 0; min-width: 260px; } }
