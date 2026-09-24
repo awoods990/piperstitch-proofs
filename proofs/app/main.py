@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -66,7 +67,43 @@ async def _scheduler():
 
 
 app = FastAPI(title="PiperStitch Proofs", lifespan=_lifespan)
-app.add_middleware(SessionMiddleware, secret_key=config.SESSION_SECRET or "dev-only-insecure-secret", same_site="lax", https_only=config.SESSION_COOKIE_SECURE)
+
+# A session cookie signed with a constant that sits in the repository is a
+# forgeable staff session, and the old fallback did exactly that behind a
+# log line nobody reads. Anything served over https refuses to start
+# instead; a local developer gets a random secret that changes every run,
+# which costs them a re-signin and can never be guessed.
+_session_secret = config.SESSION_SECRET
+if not _session_secret:
+    if config.PUBLIC_BASE_URL.startswith("https://"):
+        raise RuntimeError(
+            "SESSION_SECRET is not set. Refusing to start: sessions would be signed with a "
+            "constant from the public repository, which would let anyone forge a staff session.")
+    _session_secret = secrets.token_urlsafe(32)
+    log.warning("SESSION_SECRET is not set -- using a random per-process secret. Sign-ins will not survive a restart.")
+
+app.add_middleware(SessionMiddleware, secret_key=_session_secret, same_site="lax", https_only=config.SESSION_COOKIE_SECURE)
+
+
+@app.middleware("http")
+async def _harden(request: Request, call_next):
+    """The headers License Admin has had since launch, which this service
+    never got. The one that matters most here is the framing rule: a proof
+    page carries an Approve button, and a page that can be put inside an
+    invisible iframe can have that button clicked by someone who thought
+    they were clicking something else. An approval is the whole product."""
+    response = await call_next(request)
+    site = config.WEBSITE_URL.rstrip("/")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Content-Security-Policy",
+                                "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; "
+                                f"img-src 'self' data: blob: {site}; style-src 'self' 'unsafe-inline' {site}; "
+                                f"script-src 'self' 'unsafe-inline'; media-src 'self' {site}; form-action 'self'")
+    if config.PUBLIC_BASE_URL.startswith("https://"):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
+    return response
 _here = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
 templates = Jinja2Templates(directory=str(_here / "templates"))
