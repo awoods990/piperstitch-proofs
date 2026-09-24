@@ -17,7 +17,7 @@
 {% elif stage.next_kind == 'resend' and current and can('send') %}<form method="post" action="/proofs/{{ p.id }}/versions/{{ current.id }}/resend"><button class="btn primary">{{ stage.next_action }}</button></form>
 {% elif stage.next_kind == 'compose' and can('compose') %}<a class="btn primary" href="/proofs/{{ p.id }}/compose">{{ stage.next_action }}</a>
 {% elif stage.next_kind == 'release' and can('release') %}<form method="post" action="/proofs/{{ p.id }}/release"><button class="btn primary">Release to production</button></form>
-{% elif stage.next_kind == 'sheet' %}<a class="btn primary" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">Print the production sheet</a>{% if can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn">Mark as sewn</button></form>{% endif %}
+{% elif stage.next_kind == 'sheet' %}<a class="btn primary" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">Print the production sheet</a>{% include "_machine_files.html" %}{% if can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn">Mark as sewn</button></form>{% endif %}
 {% elif stage.next_kind == 'complete' and can('complete') %}<form method="post" action="/proofs/{{ p.id }}/complete"><button class="btn primary">Mark as sewn</button></form>
 {% elif stage.next_kind == 'core' %}<a class="btn primary" href="/core/open{% if p.core_project_id %}?project={{ p.core_project_id }}&return={{ (PUBLIC_BASE_URL ~ '/proofs/' ~ p.id)|urlencode }}{% endif %}" target="_blank">Open PiperStitch ↗</a>
 {% elif stage.next_kind == 'intake' and can('send') %}<a class="btn primary" href="#artwork">{{ stage.next_action }}</a>
@@ -164,71 +164,60 @@ dr.addEventListener('touchstart',down,{passive:false});window.addEventListener('
 {# ---- Production ---- #}
 {% if p.status in ('approved','approved_with_notes','released','completed') %}
 <div class="panel"><h3>Production</h3>
-{% set files_held = m.account.release_gate_policy == 'hard' and p.status not in ('released','completed') %}
 <div class="actions"><a class="btn {{ 'primary' if p.status == 'released' else '' }}" href="/proofs/{{ p.id }}/run-ticket.pdf" target="_blank">{{ 'Print the production sheet' if p.status in ('released','completed') else 'Preview the production sheet' }}</a>
-{# The other half of sending a job to the machine. The sheet tells the
-   operator what to do; this is the file they actually load. It sits here
-   at the same weight rather than among the small buttons in the version
-   panel, because this is the moment someone is walking to the machine. #}
-{% if files_held %}
-<button class="btn" disabled title="Your release-gate setting withholds machine files until the job is released.">⬇ Download the machine file</button>
-{% else %}
-<details class="fmt-menu">
-<summary class="btn {{ 'primary' if p.status == 'released' else '' }}">⬇ Download the machine file</summary>
-<div class="fmt-list">
-<p class="fmt-head">Pick the format your machine reads</p>
-{% for fmt, maker, note in MACHINE_FILE_LABELS %}
-<a href="/proofs/{{ p.id }}/versions/{{ current.id }}/design.{{ fmt }}" download="{{ p.reference }}-v{{ current.version_number }}.{{ fmt }}"><b>.{{ fmt }}</b><span>{{ maker }}{% if note %} · {{ note }}{% endif %}</span></a>
-{% endfor %}
-<p class="fmt-foot" id="fmtFoot">Saves as <span class="mono">{{ p.reference }}-v{{ current.version_number }}.dst</span> and the like, wherever your browser puts downloads.</p>
-</div>
-</details>
+{% include "_machine_files.html" %}
+<span class="hint">One page for the machine: hoop, backing, needle, size, placement, the approved colourway's threads in order, quantity by size and a checklist.{% if p.status not in ('released','completed') %} It's stamped “not cleared” until you release.{% endif %}</span></div>
+{% if m.account.release_gate_policy == 'hard' and p.status not in ('released','completed') %}<p class="action-hint">Release the job to unlock the machine files — your release-gate setting is set to withhold them until then.</p>{% endif %}
 <script>
 /* Chrome and Edge can ask where to put the file. Everywhere else the plain
    download stands, which is why this only ever adds behaviour: if anything
-   here is missing or fails, the link does what it already did. */
-(function () {
-  var menu = document.querySelector(".fmt-menu");
-  if (!menu || typeof window.showSaveFilePicker !== "function") return;
-  var foot = document.getElementById("fmtFoot");
-  if (foot) foot.textContent = "You'll be asked where to save it.";
+   here is missing or fails, the link does what it already did.
 
-  menu.querySelectorAll("a[download]").forEach(function (a) {
-    a.addEventListener("click", function (e) {
-      e.preventDefault();
-      var name = a.getAttribute("download");
-      var ext = name.slice(name.lastIndexOf(".") + 1);
-      var accept = {};
-      accept["application/octet-stream"] = ["." + ext];
-      /* The picker is opened first, while the click is still the user's:
-         anything awaited before it spends the gesture and the browser
-         refuses to show it. */
-      window.showSaveFilePicker({
-        suggestedName: name,
-        types: [{ description: ext.toUpperCase() + " embroidery file", accept: accept }],
-      }).then(function (handle) {
-        return fetch(a.href).then(function (res) {
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          return res.blob();
-        }).then(function (blob) {
-          return handle.createWritable().then(function (w) {
-            return w.write(blob).then(function () { return w.close(); });
+   There are two of these menus on the page -- the strip at the top and the
+   Production panel -- so every one is enhanced, and each keeps its own
+   footnote. */
+(function () {
+  var menus = document.querySelectorAll(".fmt-menu");
+  if (!menus.length || typeof window.showSaveFilePicker !== "function") return;
+
+  Array.prototype.forEach.call(menus, function (menu) {
+    var foot = menu.querySelector(".fmt-foot");
+    if (foot) foot.textContent = "You'll be asked where to save it.";
+
+    Array.prototype.forEach.call(menu.querySelectorAll("a[download]"), function (a) {
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        var name = a.getAttribute("download");
+        var ext = name.slice(name.lastIndexOf(".") + 1);
+        var accept = {};
+        accept["application/octet-stream"] = ["." + ext];
+        /* The picker is opened first, while the click is still the user's:
+           anything awaited before it spends the gesture and the browser
+           refuses to show it. */
+        window.showSaveFilePicker({
+          suggestedName: name,
+          types: [{ description: ext.toUpperCase() + " embroidery file", accept: accept }],
+        }).then(function (handle) {
+          return fetch(a.href).then(function (res) {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res.blob();
+          }).then(function (blob) {
+            return handle.createWritable().then(function (w) {
+              return w.write(blob).then(function () { return w.close(); });
+            });
+          }).then(function () {
+            if (foot) foot.textContent = "Saved " + name + ".";
+            menu.open = false;
           });
-        }).then(function () {
-          if (foot) foot.textContent = "Saved " + name + ".";
-          menu.open = false;
+        }).catch(function (err) {
+          if (err && err.name === "AbortError") return;   /* they changed their mind */
+          window.location.href = a.href;                  /* anything else: the ordinary download */
         });
-      }).catch(function (err) {
-        if (err && err.name === "AbortError") return;   /* they changed their mind */
-        window.location.href = a.href;                  /* anything else: the ordinary download */
       });
     });
   });
 })();
 </script>
-{% endif %}
-<span class="hint">One page for the machine: hoop, backing, needle, size, placement, the approved colourway's threads in order, quantity by size and a checklist.{% if p.status not in ('released','completed') %} It's stamped “not cleared” until you release.{% endif %}</span></div>
-{% if files_held %}<p class="action-hint">Release the job to unlock the machine files — your release-gate setting is set to withhold them until then.</p>{% endif %}
 {% if p.released_at %}<p class="hint" style="margin-top:8px">Released {{ p.released_at|dt }}{% if p.completed_at %} · sewn {{ p.completed_at|dt }}{% endif %}</p>{% endif %}
 </div>
 {% endif %}

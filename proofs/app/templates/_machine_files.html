@@ -1,0 +1,23 @@
+{# The stitch file, offered wherever the production sheet is offered: the
+   sheet tells the operator what to do, this is what they load into the
+   machine. Used by the "what's next" strip at the top and by the
+   Production panel, so the two cannot drift apart.
+
+   Needs: p, current, m. #}
+{% set files_held = m.account.release_gate_policy == 'hard' and p.status not in ('released','completed') %}
+{% if current %}
+{% if files_held %}
+<button class="btn" disabled title="Your release-gate setting withholds machine files until the job is released.">⬇ Download the machine file</button>
+{% else %}
+<details class="fmt-menu">
+<summary class="btn {{ 'primary' if p.status == 'released' else '' }}">⬇ Download the machine file</summary>
+<div class="fmt-list">
+<p class="fmt-head">Pick the format your machine reads</p>
+{% for fmt, maker, note in MACHINE_FILE_LABELS %}
+<a href="/proofs/{{ p.id }}/versions/{{ current.id }}/design.{{ fmt }}" download="{{ p.reference }}-v{{ current.version_number }}.{{ fmt }}"><b>.{{ fmt }}</b><span>{{ maker }}{% if note %} · {{ note }}{% endif %}</span></a>
+{% endfor %}
+<p class="fmt-foot">Saves as <span class="mono">{{ p.reference }}-v{{ current.version_number }}.dst</span> and the like, wherever your browser puts downloads.</p>
+</div>
+</details>
+{% endif %}
+{% endif %}

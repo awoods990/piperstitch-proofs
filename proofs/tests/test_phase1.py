@@ -799,3 +799,28 @@ def test_the_download_links_name_the_file_they_will_save(document, outbox):
     page = c.get(f"/proofs/{pid}").text
     for fmt in core_client.MACHINE_FORMATS:
         assert f'download="{reference}-v1.{fmt}"' in page, fmt
+
+
+def test_the_machine_file_is_offered_at_the_top_as_well_as_in_production(document, outbox):
+    """The strip at the top is where someone looks for what to do next, and
+    the file is half of that: the sheet says what to do, the file is what
+    the machine loads. Both places render from one include, so this also
+    fails if they drift apart."""
+    c = _client()
+    sign_in(c, "dana13@shop.example", outbox)
+    pid = create_and_compose(c, document, email="m13@example.com")
+    url = send_current(c, pid, outbox, "m13@example.com")
+    cust = TestClient(app)
+    cust.get(url)
+    cust.post(url + "/approve", data={"signer_name": "M Thirteen", "consent": "yes"}, follow_redirects=False)
+    c.post(f"/proofs/{pid}/release", follow_redirects=False)
+
+    page = c.get(f"/proofs/{pid}").text
+    top = page[:page.index("<h3>Production</h3>")]
+    assert "Print the production sheet" in top
+    assert "Download the machine file" in top, "the top strip should offer the file beside the sheet"
+    assert page.count("Download the machine file") == 2, "top strip and Production panel, no more"
+    # One enhancement script, reaching every menu on the page rather than
+    # one copy per menu quietly fighting the other.
+    assert page.count('querySelectorAll(".fmt-menu")') == 1
+    assert page.count("window.showSaveFilePicker({") == 1
